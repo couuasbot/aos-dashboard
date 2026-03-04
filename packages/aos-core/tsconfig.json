@@ -5,7 +5,10 @@
     "moduleResolution": "Bundler",
     "types": ["node"],
     "strict": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "rootDir": "src",
+    "outDir": "dist",
+    "declaration": true
   },
-  "include": ["src", "test"]
+  "include": ["src"]
 }

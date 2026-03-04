@@ -9,3 +9,4 @@ workflow-events.jsonl
 .aos/
 artifacts/
 tasks/QUEUE.md
+dist/
