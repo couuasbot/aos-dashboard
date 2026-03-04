@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import {
@@ -14,7 +14,11 @@ import {
   Gauge,
   Download,
   Menu,
-  X
+  X,
+  Settings,
+  Sun,
+  Moon,
+  RotateCw
 } from 'lucide-react';
 import {
   BarChart,
@@ -30,6 +34,7 @@ import {
 } from 'recharts';
 import clsx from 'clsx';
 import { toCSV, downloadJSON, downloadCSV, taskColumns, transformCollabRoles, collabRoleExportColumns } from './export';
+import { getSetting, setSetting, applyTheme, toggleTheme, getAllSettings, REFRESH_OPTIONS } from './settings';
 
 type Lane = 'execution' | 'ops';
 
@@ -110,15 +115,24 @@ type AOSEvent = {
   payload?: any;
 };
 
-function useApi<T>(path: string) {
+// Event filter state
+type EventFilters = {
+  type: string;
+  role: string;
+  runId: string;
+  search: string;
+};
+
+function useApi<T>(path: string, refetchInterval?: number) {
+  const interval = refetchInterval ?? getSetting('refreshInterval');
   return useQuery({
-    queryKey: [path],
+    queryKey: [path, interval],
     queryFn: async () => {
       const res = await fetch(path);
       if (!res.ok) throw new Error(await res.text());
       return (await res.json()) as T;
     },
-    refetchInterval: 5000
+    refetchInterval: interval > 0 ? interval : false
   });
 }
 
@@ -164,10 +178,45 @@ function pill(tone: 'ok' | 'warn' | 'info') {
 
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   
-  const overviewQ = useApi<Overview>('/api/overview');
-  const eventsQ = useApi<{ events: AOSEvent[] }>('/api/events?limit=80');
-  const lanesQ = useApi<{ laneMetrics: LaneMetrics[]; bottleneckAnalysis: BottleneckAnalysis }>('/api/lanes');
+  // Initialize settings from localStorage on mount
+  const [settings, setSettings] = useState(() => getAllSettings());
+  
+  // Event filters state
+  const [eventFilters, setEventFilters] = useState<EventFilters>({
+    type: '',
+    role: '',
+    runId: '',
+    search: ''
+  });
+  
+  // Apply theme on mount and when it changes
+  useEffect(() => {
+    applyTheme(settings.theme);
+  }, [settings.theme]);
+  
+  // Update API calls to use workspace root from settings if set
+  const baseApiUrl = settings.workspaceRoot 
+    ? `/api?workspaceRoot=${encodeURIComponent(settings.workspaceRoot)}` 
+    : '/api';
+  
+  const overviewQ = useApi<Overview>(`${baseApiUrl}/overview`, settings.refreshInterval);
+  const lanesQ = useApi<{ laneMetrics: LaneMetrics[]; bottleneckAnalysis: BottleneckAnalysis }>(`${baseApiUrl}/lanes`, settings.refreshInterval);
+
+  // Build events API URL with filters
+  const eventsApiUrl = useMemo(() => {
+    const base = `${baseApiUrl}/events?limit=80`;
+    const params = new URLSearchParams();
+    if (eventFilters.type) params.set('type', eventFilters.type);
+    if (eventFilters.role) params.set('role', eventFilters.role);
+    if (eventFilters.runId) params.set('runId', eventFilters.runId);
+    if (eventFilters.search) params.set('search', eventFilters.search);
+    const queryString = params.toString();
+    return queryString ? `${base}&${queryString}` : base;
+  }, [baseApiUrl, eventFilters]);
+  
+  const eventsQ = useApi<{ events: AOSEvent[] }>(eventsApiUrl, settings.refreshInterval);
 
   const overview = overviewQ.data;
   const tasks = overview?.tasks || [];
@@ -176,6 +225,26 @@ export default function App() {
   const lanesData = lanesQ.data;
   const laneMetrics = lanesData?.laneMetrics || [];
   const bottleneckAnalysis = lanesData?.bottleneckAnalysis;
+
+  // Settings handlers
+  const handleThemeToggle = () => {
+    const newTheme = toggleTheme();
+    setSettings(prev => ({ ...prev, theme: newTheme }));
+  };
+
+  const handleRefreshChange = (interval: number) => {
+    setSetting('refreshInterval', interval);
+    setSettings(prev => ({ ...prev, refreshInterval: interval }));
+  };
+
+  const handleWorkspaceChange = (root: string) => {
+    setSetting('workspaceRoot', root.trim() || null);
+    setSettings(prev => ({ ...prev, workspaceRoot: root.trim() || null }));
+    // Force refetch by invalidating queries
+    overviewQ.refetch();
+    eventsQ.refetch();
+    lanesQ.refetch();
+  };
 
   const chartData = useMemo(() => {
     if (!metrics) return [];
@@ -221,6 +290,17 @@ export default function App() {
     downloadCSV(csv, `collab-roles-${new Date().toISOString().slice(0,10)}.csv`);
   };
 
+  // Event filter handlers
+  const handleEventFilterChange = (key: keyof EventFilters, value: string) => {
+    setEventFilters(prev => ({ ...prev, [key]: value }));
+  };
+
+  const clearEventFilters = () => {
+    setEventFilters({ type: '', role: '', runId: '', search: '' });
+  };
+
+  const hasActiveFilters = eventFilters.type || eventFilters.role || eventFilters.runId || eventFilters.search;
+
   return (
     <div className="min-h-screen">
       {/* Mobile Header with Hamburger */}
@@ -241,14 +321,87 @@ export default function App() {
               </div>
             </div>
           </div>
-          <div className="text-right text-xs text-slate-500">
-            <div className="hidden sm:block">refresh: 5s</div>
-            {overview?.workspaceRoot ? (
-              <div className="mt-1 hidden sm:block">root: {overview.workspaceRoot}</div>
-            ) : null}
+          <div className="flex items-center gap-3">
+            <div className="text-right text-xs text-slate-500">
+              <div className="hidden sm:block">
+                {settings.refreshInterval > 0 ? `refresh: ${settings.refreshInterval / 1000}s` : 'refresh: off'}
+              </div>
+              {settings.workspaceRoot ? (
+                <div className="mt-1 hidden sm:block truncate max-w-[200px]" title={settings.workspaceRoot}>
+                  root: {settings.workspaceRoot}
+                </div>
+              ) : overview?.workspaceRoot ? (
+                <div className="mt-1 hidden sm:block truncate max-w-[200px]" title={overview.workspaceRoot}>
+                  root: {overview.workspaceRoot}
+                </div>
+              ) : null}
+            </div>
+            <button
+              onClick={() => setSettingsOpen(!settingsOpen)}
+              className={clsx(
+                'rounded-lg border p-2 hover:bg-slate-50',
+                settingsOpen ? 'bg-slate-100 border-slate-300' : ''
+              )}
+              aria-label="Settings"
+            >
+              <Settings className="h-5 w-5" />
+            </button>
           </div>
         </div>
       </header>
+
+      {/* Settings Panel */}
+      {settingsOpen && (
+        <div className="border-b bg-slate-50 px-3 py-3 sm:px-4">
+          <div className="mx-auto max-w-6xl space-y-3">
+            <div className="text-sm font-semibold">Settings</div>
+            <div className="flex flex-wrap items-center gap-4">
+              {/* Theme Toggle */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-600">Theme:</span>
+                <button
+                  onClick={handleThemeToggle}
+                  className="flex items-center gap-1.5 rounded border bg-white px-2 py-1 text-xs hover:bg-slate-100"
+                >
+                  {settings.theme === 'dark' ? <Moon className="h-3 w-3" /> : <Sun className="h-3 w-3" />}
+                  {settings.theme === 'dark' ? 'Dark' : 'Light'}
+                </button>
+              </div>
+              
+              {/* Refresh Interval */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-600">Refresh:</span>
+                <div className="flex rounded border bg-white overflow-hidden">
+                  {REFRESH_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      onClick={() => handleRefreshChange(opt.value)}
+                      className={clsx(
+                        'px-2 py-1 text-xs hover:bg-slate-100',
+                        settings.refreshInterval === opt.value ? 'bg-slate-200 font-medium' : ''
+                      )}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              
+              {/* Workspace Root */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-600">Workspace:</span>
+                <input
+                  type="text"
+                  placeholder="Auto-detect"
+                  value={settings.workspaceRoot || ''}
+                  onChange={(e) => handleWorkspaceChange(e.target.value)}
+                  className="w-48 rounded border px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Sidebar - Mobile */}
       <div className={clsx(
@@ -641,9 +794,76 @@ export default function App() {
 
         <section className="rounded-xl border bg-white p-3 shadow-sm sm:p-4">
           <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-            <div className="text-sm font-semibold">Recent Events (tail)</div>
-            <div className="text-xs text-slate-500">audit trail • last {eventsQ.data?.events.length ?? 0}</div>
+            <div className="text-sm font-semibold">Event Timeline</div>
+            <div className="text-xs text-slate-500">
+              {hasActiveFilters ? 'filtered • ' : 'audit trail • '}
+              last {eventsQ.data?.events.length ?? 0}
+            </div>
           </div>
+
+          {/* Event Filters */}
+          <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg bg-slate-50 p-2">
+            <div className="flex items-center gap-1">
+              <span className="text-xs text-slate-600">Type:</span>
+              <input
+                type="text"
+                placeholder="DISPATCH, TASK_STATE..."
+                value={eventFilters.type}
+                onChange={(e) => handleEventFilterChange('type', e.target.value)}
+                className="w-28 rounded border px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="text-xs text-slate-600">Role:</span>
+              <input
+                type="text"
+                placeholder="cto, god..."
+                value={eventFilters.role}
+                onChange={(e) => handleEventFilterChange('role', e.target.value)}
+                className="w-20 rounded border px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="text-xs text-slate-600">runId:</span>
+              <input
+                type="text"
+                placeholder="run_xxx"
+                value={eventFilters.runId}
+                onChange={(e) => handleEventFilterChange('runId', e.target.value)}
+                className="w-28 rounded border px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="text-xs text-slate-600">Search:</span>
+              <input
+                type="text"
+                placeholder="text in payload..."
+                value={eventFilters.search}
+                onChange={(e) => handleEventFilterChange('search', e.target.value)}
+                className="w-36 rounded border px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            {hasActiveFilters && (
+              <button
+                onClick={clearEventFilters}
+                className="rounded border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-700 hover:bg-red-100"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+
+          {eventsQ.isLoading && (
+            <div className="py-4 text-center text-sm text-slate-500">Loading events...</div>
+          )}
+
+          {eventsQ.isError && (
+            <div className="py-4 text-center text-sm text-red-600">Error loading events</div>
+          )}
+
+          {!eventsQ.isLoading && (eventsQ.data?.events || []).length === 0 && (
+            <div className="py-4 text-center text-sm text-slate-500">No events found</div>
+          )}
 
           <div className="space-y-2 max-h-96 overflow-y-auto">
             {(eventsQ.data?.events || []).slice().reverse().slice(0, 60).map((e) => {

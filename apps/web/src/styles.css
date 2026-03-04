@@ -6,7 +6,56 @@
   color-scheme: light;
 }
 
+.dark {
+  color-scheme: dark;
+}
+
 body {
   @apply bg-slate-50 text-slate-900;
   font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+}
+
+.dark body {
+  @apply bg-slate-900 text-slate-100;
+}
+
+/* Dark mode overrides for common elements */
+.dark .border-slate-200 {
+  border-color: #334155;
+}
+
+.dark .bg-white {
+  background-color: #1e293b;
+}
+
+.dark .bg-slate-50 {
+  background-color: #0f172a;
+}
+
+.dark .bg-slate-100 {
+  background-color: #1e293b;
+}
+
+.dark .text-slate-900 {
+  color: #f1f5f9;
+}
+
+.dark .text-slate-700 {
+  color: #cbd5e1;
+}
+
+.dark .text-slate-600 {
+  color: #94a3b8;
+}
+
+.dark .text-slate-500 {
+  color: #64748b;
+}
+
+.dark .hover\:bg-slate-50:hover {
+  background-color: #334155;
+}
+
+.dark .hover\:bg-slate-100:hover {
+  background-color: #475569;
 }

@@ -20,7 +20,14 @@ const port = Number(process.env.PORT || 8787);
 const app = Fastify({ logger: true });
 await app.register(cors, { origin: true });
 
-app.get('/api/health', async () => {
+// Helper to get workspaceRoot from query params or default
+function getWorkspaceRootFromQuery(query: Record<string, unknown>): string {
+  const ws = query.workspaceRoot;
+  return typeof ws === 'string' && ws.trim() ? ws.trim() : resolveWorkspaceRoot();
+}
+
+// Health endpoint - returns current workspace root
+app.get('/api/health', async (req) => {
   const workspaceRoot = resolveWorkspaceRoot();
   const eventLogPath = getEventLogPath(workspaceRoot);
   const lock = await readAutopilotLock(workspaceRoot);
@@ -32,28 +39,32 @@ app.get('/api/health', async () => {
   };
 });
 
-app.get('/api/tasks', async () => {
-  const workspaceRoot = resolveWorkspaceRoot();
+// Tasks endpoint with optional workspaceRoot override
+app.get('/api/tasks', async (req) => {
+  const workspaceRoot = getWorkspaceRootFromQuery(req.query as Record<string, unknown>);
   const tasks = await getTasksState(workspaceRoot);
   return { tasks: [...tasks.values()] };
 });
 
-app.get('/api/metrics', async () => {
-  const workspaceRoot = resolveWorkspaceRoot();
+// Metrics endpoint with optional workspaceRoot override
+app.get('/api/metrics', async (req) => {
+  const workspaceRoot = getWorkspaceRootFromQuery(req.query as Record<string, unknown>);
   const tasks = await getTasksState(workspaceRoot);
   return computeTaskMetrics([...tasks.values()]);
 });
 
+// Collab endpoint with optional workspaceRoot override
 app.get('/api/collab', async (req) => {
-  const workspaceRoot = resolveWorkspaceRoot();
+  const workspaceRoot = getWorkspaceRootFromQuery(req.query as Record<string, unknown>);
   const windowHours = Math.min(168, Math.max(1, Number((req.query as any)?.windowHours || 24)));
   const tasks = await getTasksState(workspaceRoot);
   const events = await readEventsTail(workspaceRoot, 5000);
   return computeCollabMetricsFrom([...tasks.values()], events, { windowHours });
 });
 
+// Overview endpoint with optional workspaceRoot override
 app.get('/api/overview', async (req) => {
-  const workspaceRoot = resolveWorkspaceRoot();
+  const workspaceRoot = getWorkspaceRootFromQuery(req.query as Record<string, unknown>);
   const windowHours = Math.min(168, Math.max(1, Number((req.query as any)?.windowHours || 24)));
 
   const [tasksMap, events, lock] = await Promise.all([
@@ -69,23 +80,71 @@ app.get('/api/overview', async (req) => {
   return { workspaceRoot, lock, metrics, collab, tasks };
 });
 
+// Events endpoint with optional filtering and search
+// Query params: limit, type (comma-separated), role, runId, search (text search in payload)
 app.get('/api/events', async (req) => {
-  const workspaceRoot = resolveWorkspaceRoot();
+  const workspaceRoot = getWorkspaceRootFromQuery(req.query as Record<string, unknown>);
   const limit = Math.min(1000, Math.max(1, Number((req.query as any)?.limit || 200)));
-  const events = await readEventsTail(workspaceRoot, limit);
+  
+  // Filter params
+  const typeFilter = (req.query as any)?.type;
+  const roleFilter = (req.query as any)?.role;
+  const runIdFilter = (req.query as any)?.runId;
+  const searchFilter = (req.query as any)?.search;
+  
+  let events = await readEventsTail(workspaceRoot, 1000); // Fetch more to filter
+  
+  // Apply filters
+  if (typeFilter) {
+    const types = typeFilter.split(',').map((t: string) => t.trim().toUpperCase());
+    events = events.filter(e => types.includes(String(e.type).toUpperCase()));
+  }
+  
+  if (roleFilter) {
+    const role = roleFilter.trim().toLowerCase();
+    events = events.filter(e => {
+      const p = e.payload || {};
+      return String(p.role || '').toLowerCase() === role;
+    });
+  }
+  
+  if (runIdFilter) {
+    const runId = runIdFilter.trim();
+    events = events.filter(e => {
+      const p = e.payload || {};
+      return String(p.runId || '') === runId;
+    });
+  }
+  
+  if (searchFilter) {
+    const search = searchFilter.trim().toLowerCase();
+    events = events.filter(e => {
+      const p = e.payload || {};
+      // Search in all payload values as strings
+      return Object.values(p).some(v => 
+        String(v).toLowerCase().includes(search)
+      );
+    });
+  }
+  
+  // Apply limit after filtering
+  events = events.slice(-limit);
+  
   return { events };
 });
 
-app.get('/api/lanes', async () => {
-  const workspaceRoot = resolveWorkspaceRoot();
+// Lanes endpoint with optional workspaceRoot override
+app.get('/api/lanes', async (req) => {
+  const workspaceRoot = getWorkspaceRootFromQuery(req.query as Record<string, unknown>);
   const tasks = await getTasksState(workspaceRoot);
   const laneMetrics = computeLaneMetrics([...tasks.values()]);
   const bottleneckAnalysis = computeBottleneckAnalysis([...tasks.values()]);
   return { laneMetrics, bottleneckAnalysis };
 });
 
+// Task detail endpoint with optional workspaceRoot override
 app.get('/api/task/:taskId', async (req) => {
-  const workspaceRoot = resolveWorkspaceRoot();
+  const workspaceRoot = getWorkspaceRootFromQuery(req.query as Record<string, unknown>);
   const taskId = (req.params as Record<string, string>).taskId;
   
   if (!taskId) {
@@ -191,7 +250,7 @@ app.get('/api/task/:taskId', async (req) => {
 
 // Endpoint to fetch human-readable summary for a task run
 app.get('/api/task/:taskId/run/:runId/summary', async (req) => {
-  const workspaceRoot = resolveWorkspaceRoot();
+  const workspaceRoot = getWorkspaceRootFromQuery(req.query as Record<string, unknown>);
   const taskId = (req.params as Record<string, string>).taskId;
   const runId = (req.params as Record<string, string>).runId;
 
