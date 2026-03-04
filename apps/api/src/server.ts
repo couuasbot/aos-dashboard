@@ -4,7 +4,8 @@ import cors from '@fastify/cors';
 import {
   readEventsTail,
   getTasksState,
-  computeMetrics,
+  computeTaskMetrics,
+  computeCollabMetricsFrom,
   readAutopilotLock,
   resolveWorkspaceRoot,
   getEventLogPath
@@ -37,7 +38,32 @@ app.get('/api/tasks', async () => {
 app.get('/api/metrics', async () => {
   const workspaceRoot = resolveWorkspaceRoot();
   const tasks = await getTasksState(workspaceRoot);
-  return computeMetrics([...tasks.values()]);
+  return computeTaskMetrics([...tasks.values()]);
+});
+
+app.get('/api/collab', async (req) => {
+  const workspaceRoot = resolveWorkspaceRoot();
+  const windowHours = Math.min(168, Math.max(1, Number((req.query as any)?.windowHours || 24)));
+  const tasks = await getTasksState(workspaceRoot);
+  const events = await readEventsTail(workspaceRoot, 5000);
+  return computeCollabMetricsFrom([...tasks.values()], events, { windowHours });
+});
+
+app.get('/api/overview', async (req) => {
+  const workspaceRoot = resolveWorkspaceRoot();
+  const windowHours = Math.min(168, Math.max(1, Number((req.query as any)?.windowHours || 24)));
+
+  const [tasksMap, events, lock] = await Promise.all([
+    getTasksState(workspaceRoot),
+    readEventsTail(workspaceRoot, 2000),
+    readAutopilotLock(workspaceRoot)
+  ]);
+
+  const tasks = [...tasksMap.values()];
+  const metrics = computeTaskMetrics(tasks);
+  const collab = computeCollabMetricsFrom(tasks, events, { windowHours });
+
+  return { workspaceRoot, lock, metrics, collab, tasks };
 });
 
 app.get('/api/events', async (req) => {

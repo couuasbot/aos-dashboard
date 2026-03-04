@@ -26,6 +26,15 @@ export type Task = {
   lastError?: any;
 };
 
+export type AOSEvent = {
+  id: string;
+  timestamp: string;
+  type: string;
+  agent?: string;
+  payload?: any;
+  schemaVersion?: number;
+};
+
 export type AOSLock = {
   path: string;
   exists: boolean;
@@ -34,6 +43,38 @@ export type AOSLock = {
   ttlMs?: number;
   stale?: boolean;
   ageMs?: number;
+};
+
+export type TaskMetrics = {
+  byState: Record<string, number>;
+  byLane: Record<string, number>;
+  byRole: Record<string, number>;
+  slaBreachesCount: number;
+  slaBreaches: Array<{ taskId: string; ageMin: number; slaMinutes: number; lane?: Lane; role?: string }>;
+};
+
+export type CollabMetrics = {
+  windowHours: number;
+  roles: Array<{
+    role: string;
+    current: {
+      ready: number;
+      inProgress: number;
+      review: number;
+      failed: number;
+      done: number;
+    };
+    recent: {
+      dispatched: number;
+      completedDone: number;
+      completedFailed: number;
+      avgCycleTimeMin: number | null;
+    };
+  }>;
+  signals: {
+    validationErrors: number;
+    mismatchesToReview: number;
+  };
 };
 
 export function resolveWorkspaceRoot(): string {
@@ -47,6 +88,10 @@ export function getEventLogPath(workspaceRoot: string): string {
   return `${workspaceRoot}/workflow-events.jsonl`;
 }
 
+export function getSnapshotPath(workspaceRoot: string): string {
+  return `${workspaceRoot}/.aos/workflow-snapshot.json`;
+}
+
 function safeJsonParse(line: string): any | null {
   try {
     return JSON.parse(line);
@@ -55,13 +100,13 @@ function safeJsonParse(line: string): any | null {
   }
 }
 
-function normalizeEvent(e: any, idx: number) {
+function normalizeEvent(e: any, idx: number): AOSEvent | null {
   if (!e || typeof e !== 'object') return null;
   if (!e.id) e.id = `legacy_${idx}`;
   if (!e.timestamp) e.timestamp = new Date(0).toISOString();
   if (e.type) e.type = String(e.type).toUpperCase();
   if (!('payload' in e)) e.payload = {};
-  return e;
+  return e as AOSEvent;
 }
 
 async function readFileText(p: string): Promise<string | null> {
@@ -112,20 +157,6 @@ export async function readAutopilotLock(workspaceRoot: string): Promise<AOSLock>
   return { path: lockPath, exists: true, pid, startTs, ttlMs, stale, ageMs };
 }
 
-export async function readEventsTail(workspaceRoot: string, limit = 200): Promise<any[]> {
-  const fs = await import('node:fs/promises');
-  const p = getEventLogPath(workspaceRoot);
-  const txt = await fs.readFile(p, 'utf8');
-  const lines = txt.split('\n').filter(Boolean);
-  const tail = lines.slice(Math.max(0, lines.length - limit));
-  const events: any[] = [];
-  for (let i = 0; i < tail.length; i++) {
-    const e = normalizeEvent(safeJsonParse(tail[i]), i);
-    if (e) events.push(e);
-  }
-  return events;
-}
-
 function defaultTask(taskId: string): Task {
   return {
     taskId,
@@ -152,10 +183,14 @@ function touch(t: Task, ts: string) {
   if (!t.createdAt) t.createdAt = ts;
 }
 
-function applyEvent(tasks: Map<string, Task>, e: any) {
+function laneNorm(v: any): Lane {
+  return v === 'ops' || v === 'operations' ? 'ops' : 'execution';
+}
+
+function applyEvent(tasks: Map<string, Task>, e: AOSEvent) {
   const ts = e.timestamp as string;
   const type = String(e.type || '').toUpperCase();
-  const p = e.payload || {};
+  const p = (e as any).payload || {};
 
   if (type === 'TASK_CREATE') {
     const id = p.taskId;
@@ -165,7 +200,7 @@ function applyEvent(tasks: Map<string, Task>, e: any) {
     t.details = p.details || t.details;
     t.roleHint = p.roleHint || t.roleHint;
     t.priority = p.priority || t.priority;
-    t.lane = (p.lane === 'ops' ? 'ops' : 'execution');
+    t.lane = laneNorm(p.lane || t.lane);
     t.slaMinutes = Number(p.slaMinutes || t.slaMinutes || 60);
     t.artifactsDir = p.artifactsDir || t.artifactsDir;
     t.state = 'Inbox';
@@ -178,7 +213,7 @@ function applyEvent(tasks: Map<string, Task>, e: any) {
     const id = p.taskId;
     if (!id) return;
     const t = tasks.get(id) || defaultTask(id);
-    if (p.lane) t.lane = p.lane === 'ops' ? 'ops' : 'execution';
+    if (p.lane) t.lane = laneNorm(p.lane);
     t.state = (p.state as TaskState) || t.state;
     if (t.state === 'In Progress' && !t.inProgressAt) t.inProgressAt = ts;
     if (t.state !== 'In Progress') t.inProgressAt = null;
@@ -191,7 +226,7 @@ function applyEvent(tasks: Map<string, Task>, e: any) {
     const id = p.taskId;
     if (!id) return;
     const t = tasks.get(id) || defaultTask(id);
-    if (p.lane) t.lane = p.lane === 'ops' ? 'ops' : 'execution';
+    if (p.lane) t.lane = laneNorm(p.lane);
     t.title = p.intent || t.title;
     t.roleHint = p.role || t.roleHint;
     if (p.artifactsBaseDir) t.artifactsDir = p.artifactsBaseDir;
@@ -213,7 +248,7 @@ function applyEvent(tasks: Map<string, Task>, e: any) {
     const id = p.taskId;
     if (!id) return;
     const t = tasks.get(id) || defaultTask(id);
-    if (p.lane) t.lane = p.lane === 'ops' ? 'ops' : 'execution';
+    if (p.lane) t.lane = laneNorm(p.lane);
     t.resultPath = p.resultPath || t.resultPath;
     if (p.artifactsBaseDir) t.artifactsDir = p.artifactsBaseDir;
     t.lastError = p.error || null;
@@ -226,7 +261,7 @@ function applyEvent(tasks: Map<string, Task>, e: any) {
     const id = p.taskId;
     if (!id) return;
     const t = tasks.get(id) || defaultTask(id);
-    if (p.lane) t.lane = p.lane === 'ops' ? 'ops' : 'execution';
+    if (p.lane) t.lane = laneNorm(p.lane);
     const status = String(p.status || '').toUpperCase();
     if (status === 'DONE') t.state = 'Done';
     else if (status === 'FAILED') t.state = 'Failed';
@@ -239,33 +274,127 @@ function applyEvent(tasks: Map<string, Task>, e: any) {
   }
 }
 
-export async function getTasksState(workspaceRoot: string): Promise<Map<string, Task>> {
-  // MVP: full load. Later we will implement snapshot+offset for speed.
-  const fs = await import('node:fs/promises');
-  const p = getEventLogPath(workspaceRoot);
-  const txt = await fs.readFile(p, 'utf8');
-  const lines = txt.split('\n').filter(Boolean);
+async function readSnapshot(workspaceRoot: string): Promise<{ offset: number; tasks: Record<string, Task> } | null> {
+  const p = getSnapshotPath(workspaceRoot);
+  const txt = await readFileText(p);
+  if (!txt) return null;
+  const obj = safeJsonParse(txt);
+  if (!obj || typeof obj !== 'object') return null;
+  if (!Number.isFinite(obj.offset)) return null;
+  if (!obj.tasks || typeof obj.tasks !== 'object') return null;
+  return { offset: Number(obj.offset), tasks: obj.tasks };
+}
 
-  const tasks = new Map<string, Task>();
+async function readNewEventsSinceOffset(filePath: string, startOffset: number): Promise<{ events: AOSEvent[]; newOffset: number }> {
+  const fs = await import('node:fs/promises');
+  const st = await fs.stat(filePath);
+  const size = st.size;
+  let offset = Number.isFinite(startOffset) && startOffset >= 0 ? startOffset : 0;
+
+  if (offset > size) offset = 0; // log rotated/truncated
+  if (offset === size) return { events: [], newOffset: offset };
+
+  const fd = await fs.open(filePath, 'r');
+  try {
+    const len = size - offset;
+    const buf = Buffer.alloc(len);
+    await fd.read(buf, 0, len, offset);
+
+    const lastNL = buf.lastIndexOf(0x0a); // '\n'
+    if (lastNL === -1) return { events: [], newOffset: offset };
+
+    const completeBuf = buf.subarray(0, lastNL);
+    const text = completeBuf.toString('utf8');
+    const lines = text.split('\n').filter(Boolean);
+
+    const events: AOSEvent[] = [];
+    for (let i = 0; i < lines.length; i++) {
+      const e = normalizeEvent(safeJsonParse(lines[i]), i);
+      if (e) events.push(e);
+    }
+
+    return { events, newOffset: offset + lastNL + 1 };
+  } finally {
+    await fd.close();
+  }
+}
+
+async function readAllEventsSafe(filePath: string): Promise<AOSEvent[]> {
+  const fs = await import('node:fs/promises');
+  const buf = await fs.readFile(filePath);
+  const lastNL = buf.lastIndexOf(0x0a);
+  if (lastNL === -1) return [];
+  const text = buf.subarray(0, lastNL).toString('utf8');
+  const lines = text.split('\n').filter(Boolean);
+  const events: AOSEvent[] = [];
   for (let i = 0; i < lines.length; i++) {
     const e = normalizeEvent(safeJsonParse(lines[i]), i);
-    if (!e) continue;
-    applyEvent(tasks, e);
+    if (e) events.push(e);
   }
+  return events;
+}
+
+/**
+ * Project tasks from event log.
+ *
+ * Fidelity notes:
+ * - Uses AOS snapshot (if present) + byte offset incremental scan
+ * - Never writes to disk (dashboard is read-only)
+ * - Safely ignores partial trailing lines
+ */
+export async function getTasksState(workspaceRoot: string): Promise<Map<string, Task>> {
+  const fs = await import('node:fs/promises');
+  const logPath = getEventLogPath(workspaceRoot);
+
+  let tasks = new Map<string, Task>();
+  let offset = 0;
+
+  const snap = await readSnapshot(workspaceRoot);
+  if (snap) {
+    offset = snap.offset;
+    for (const [taskId, t] of Object.entries(snap.tasks)) {
+      // snapshot tasks are already projected by AOS; normalize lane defaults
+      const lane = laneNorm((t as any).lane);
+      tasks.set(taskId, { ...t, lane });
+    }
+  }
+
+  try {
+    await fs.stat(logPath);
+  } catch {
+    return tasks;
+  }
+
+  if (!snap) {
+    const events = await readAllEventsSafe(logPath);
+    for (const e of events) applyEvent(tasks, e);
+    return tasks;
+  }
+
+  const { events: newEvents } = await readNewEventsSinceOffset(logPath, offset);
+  for (const e of newEvents) applyEvent(tasks, e);
   return tasks;
 }
 
-export function computeMetrics(tasks: Task[]) {
+export async function readEventsTail(workspaceRoot: string, limit = 200): Promise<AOSEvent[]> {
+  // Simple + safe: full read, ignore partial last line, then take tail.
+  const logPath = getEventLogPath(workspaceRoot);
+  const events = await readAllEventsSafe(logPath);
+  return events.slice(Math.max(0, events.length - limit));
+}
+
+export function computeTaskMetrics(tasks: Task[]): TaskMetrics {
   const byState: Record<string, number> = {};
   const byLane: Record<string, number> = { execution: 0, ops: 0 };
   const byRole: Record<string, number> = {};
 
   const now = Date.now();
-  const slaBreaches: Array<{ taskId: string; ageMin: number; slaMinutes: number }> = [];
+  const slaBreaches: Array<{ taskId: string; ageMin: number; slaMinutes: number; lane?: Lane; role?: string }> = [];
 
   for (const t of tasks) {
     byState[t.state] = (byState[t.state] || 0) + 1;
-    const lane = t.lane || 'execution';
+
+    const lane = (t.lane || 'execution') as Lane;
     byLane[lane] = (byLane[lane] || 0) + 1;
 
     const role = t.roleHint || 'unknown';
@@ -274,9 +403,134 @@ export function computeMetrics(tasks: Task[]) {
     if (t.state === 'In Progress' && t.inProgressAt) {
       const ageMin = Math.floor((now - new Date(t.inProgressAt).getTime()) / 60000);
       const slaMinutes = Number(t.slaMinutes || 60);
-      if (ageMin > slaMinutes) slaBreaches.push({ taskId: t.taskId, ageMin, slaMinutes });
+      if (ageMin > slaMinutes) slaBreaches.push({ taskId: t.taskId, ageMin, slaMinutes, lane, role });
     }
   }
 
+  slaBreaches.sort((a, b) => b.ageMin - a.ageMin);
+
   return { byState, byLane, byRole, slaBreachesCount: slaBreaches.length, slaBreaches };
+}
+
+// Back-compat export name
+export const computeMetrics = computeTaskMetrics;
+
+function keyFor(taskId: any, runId: any): string {
+  return `${String(taskId || '')}::${String(runId || '')}`;
+}
+
+function toMs(iso: any): number {
+  const t = new Date(String(iso || '')).getTime();
+  return Number.isFinite(t) ? t : 0;
+}
+
+export function computeCollabMetricsFrom(tasks: Task[], events: AOSEvent[], { windowHours = 24 }: { windowHours?: number } = {}): CollabMetrics {
+  const cutoffMs = Date.now() - windowHours * 3600 * 1000;
+
+  // current counts by role from tasks
+  const roles = new Map<
+    string,
+    {
+      role: string;
+      current: { ready: number; inProgress: number; review: number; failed: number; done: number };
+      recent: { dispatched: number; completedDone: number; completedFailed: number; cycleTimesMin: number[] };
+    }
+  >();
+
+  function ensure(role: string) {
+    if (!roles.has(role)) {
+      roles.set(role, {
+        role,
+        current: { ready: 0, inProgress: 0, review: 0, failed: 0, done: 0 },
+        recent: { dispatched: 0, completedDone: 0, completedFailed: 0, cycleTimesMin: [] }
+      });
+    }
+    return roles.get(role)!;
+  }
+
+  for (const t of tasks) {
+    const role = t.roleHint || 'unknown';
+    const r = ensure(role);
+    if (t.state === 'Ready') r.current.ready += 1;
+    else if (t.state === 'In Progress') r.current.inProgress += 1;
+    else if (t.state === 'Review') r.current.review += 1;
+    else if (t.state === 'Failed') r.current.failed += 1;
+    else if (t.state === 'Done') r.current.done += 1;
+  }
+
+  // recent event-based metrics
+  const dispatchByKey = new Map<string, { tsMs: number; role: string }>();
+  const completeByKey = new Map<string, { tsMs: number; status: 'DONE' | 'FAILED' | 'OTHER' }>();
+
+  let validationErrors = 0;
+  let mismatchesToReview = 0;
+
+  for (const e of events) {
+    const tsMs = toMs(e.timestamp);
+    if (tsMs && tsMs < cutoffMs) continue;
+
+    const type = String(e.type || '').toUpperCase();
+    const p = (e as any).payload || {};
+
+    if (type === 'VALIDATION_ERROR') validationErrors += 1;
+    if (type === 'TASK_STATE' && String(p.state || '').toLowerCase() === 'review') {
+      const dk = String(p.dedupeKey || '');
+      if (dk.startsWith('mismatch::') || dk.startsWith('validation_review::')) mismatchesToReview += 1;
+    }
+
+    if (type === 'DISPATCH') {
+      const taskId = p.taskId;
+      const runId = p.runId;
+      const role = String(p.role || 'unknown');
+      dispatchByKey.set(keyFor(taskId, runId), { tsMs, role });
+      ensure(role).recent.dispatched += 1;
+    }
+
+    if (type === 'TASK_COMPLETE') {
+      const taskId = p.taskId;
+      const runId = p.runId;
+      const statusUpper = String(p.status || '').toUpperCase();
+      const status = statusUpper === 'DONE' ? 'DONE' : statusUpper === 'FAILED' ? 'FAILED' : 'OTHER';
+      completeByKey.set(keyFor(taskId, runId), { tsMs, status });
+    }
+  }
+
+  // join dispatch + complete to compute cycle times and completion counts per role
+  for (const [k, c] of completeByKey.entries()) {
+    const d = dispatchByKey.get(k);
+    if (!d) continue;
+    const role = d.role;
+    const r = ensure(role);
+
+    if (c.status === 'DONE') r.recent.completedDone += 1;
+    else if (c.status === 'FAILED') r.recent.completedFailed += 1;
+
+    if (d.tsMs && c.tsMs && c.tsMs >= d.tsMs) {
+      r.recent.cycleTimesMin.push(Math.floor((c.tsMs - d.tsMs) / 60000));
+    }
+  }
+
+  const out = [...roles.values()].map((r) => {
+    const times = r.recent.cycleTimesMin;
+    const avg = times.length ? times.reduce((a, b) => a + b, 0) / times.length : null;
+    return {
+      role: r.role,
+      current: r.current,
+      recent: {
+        dispatched: r.recent.dispatched,
+        completedDone: r.recent.completedDone,
+        completedFailed: r.recent.completedFailed,
+        avgCycleTimeMin: avg !== null ? Math.round(avg * 10) / 10 : null
+      }
+    };
+  });
+
+  // stable sort: most in-progress first
+  out.sort((a, b) => b.current.inProgress - a.current.inProgress);
+
+  return {
+    windowHours,
+    roles: out,
+    signals: { validationErrors, mismatchesToReview }
+  };
 }

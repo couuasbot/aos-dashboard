@@ -10,15 +10,15 @@
 
 ## v0.2 (Reliability & Fidelity)
 
-- Snapshot+offset incremental parsing (match AOS skill)
-- Partial-line safe tail reader
-- Metrics: throughput, cycle time, per-agent load
+- [x] Snapshot+offset incremental parsing (match AOS skill semantics; read-only)
+- [x] Partial-line safe parsing (ignore partial trailing JSONL line)
+- [x] Collaboration metrics (per-role load + recent dispatch/complete + avg cycle time)
 
 ## v0.3 (Collaboration)
 
-- Agent collaboration view
-- Event timeline visualization
-- Lane view & bottleneck detection
+- [x] Agent collaboration view (current+recent)
+- [x] Event timeline visualization (tail)
+- [ ] Lane view & bottleneck detection (deeper)
 
 ## v1.0
 

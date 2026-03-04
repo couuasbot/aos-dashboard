@@ -7,6 +7,11 @@ It provides:
 - Agent collaboration view (dispatches/results per role)
 - Operational health signals (snapshot/lock/log status)
 
+## Product Constraints
+
+- **Read-only until v1.0** (no control-plane actions)
+- **Local-first until v1.0** (runs on the same machine as the AOS workspace)
+
 ## MVP Scope
 
 - Read-only dashboard
