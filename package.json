@@ -1,0 +1,14 @@
+{
+  "name": "aos-dashboard",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w apps/api & npm run dev -w apps/web",
+    "build": "npm run build -ws",
+    "test": "npm run test -ws",
+    "lint": "npm run lint -ws"
+  }
+}
