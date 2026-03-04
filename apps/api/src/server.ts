@@ -6,6 +6,8 @@ import {
   getTasksState,
   computeTaskMetrics,
   computeCollabMetricsFrom,
+  computeLaneMetrics,
+  computeBottleneckAnalysis,
   readAutopilotLock,
   resolveWorkspaceRoot,
   getEventLogPath
@@ -71,6 +73,119 @@ app.get('/api/events', async (req) => {
   const limit = Math.min(1000, Math.max(1, Number((req.query as any)?.limit || 200)));
   const events = await readEventsTail(workspaceRoot, limit);
   return { events };
+});
+
+app.get('/api/lanes', async () => {
+  const workspaceRoot = resolveWorkspaceRoot();
+  const tasks = await getTasksState(workspaceRoot);
+  const laneMetrics = computeLaneMetrics([...tasks.values()]);
+  const bottleneckAnalysis = computeBottleneckAnalysis([...tasks.values()]);
+  return { laneMetrics, bottleneckAnalysis };
+});
+
+app.get('/api/task/:taskId', async (req) => {
+  const workspaceRoot = resolveWorkspaceRoot();
+  const taskId = (req.params as Record<string, string>).taskId;
+  
+  if (!taskId) {
+    return { error: 'taskId is required' };
+  }
+
+  const [tasksMap, allEvents] = await Promise.all([
+    getTasksState(workspaceRoot),
+    readEventsTail(workspaceRoot, 5000)
+  ]);
+
+  const task = tasksMap.get(taskId);
+  
+  if (!task) {
+    return { error: `Task ${taskId} not found`, taskId };
+  }
+
+  // Filter events for this task
+  const taskEvents = allEvents.filter(e => {
+    const p = e.payload || {};
+    return p.taskId === taskId;
+  });
+
+  // Compute dispatch history
+  const dispatchHistory: Array<{
+    runId: string | null;
+    role: string | null;
+    at: string;
+    cycleTimeMin: number | null;
+    outcome: 'done' | 'failed' | 'unknown' | 'pending';
+  }> = [];
+
+  for (const e of taskEvents) {
+    const p = e.payload || {};
+    if (e.type === 'DISPATCH' && p.taskId === taskId) {
+      const runId = p.runId || null;
+      const role = p.role || null;
+      const at = e.timestamp;
+      
+      // Find corresponding completion
+      const completionEvent = taskEvents.find(ev => {
+        const cp = ev.payload || {};
+        return ev.type === 'TASK_COMPLETE' && 
+               cp.taskId === taskId && 
+               cp.runId === runId;
+      });
+      
+      let outcome: 'done' | 'failed' | 'unknown' | 'pending' = 'pending';
+      let cycleTimeMin: number | null = null;
+      
+      if (completionEvent) {
+        const cp = completionEvent.payload || {};
+        const status = String(cp.status || '').toUpperCase();
+        outcome = status === 'DONE' ? 'done' : status === 'FAILED' ? 'failed' : 'unknown';
+        
+        const dispatchMs = new Date(at).getTime();
+        const completeMs = new Date(completionEvent.timestamp).getTime();
+        if (dispatchMs && completeMs && completeMs >= dispatchMs) {
+          cycleTimeMin = Math.floor((completeMs - dispatchMs) / 60000);
+        }
+      }
+      
+      dispatchHistory.push({ runId, role, at, cycleTimeMin, outcome });
+    }
+  }
+
+  // Sort by most recent first
+  dispatchHistory.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+
+  // Calculate derived metrics
+  const attemptCount = task.attempts || 0;
+  const completedDispatches = dispatchHistory.filter(d => d.outcome !== 'pending');
+  const avgCycleTimeMin = completedDispatches.length > 0
+    ? completedDispatches
+        .filter(d => d.cycleTimeMin !== null)
+        .reduce((sum, d, _, arr) => sum + (d.cycleTimeMin || 0) / arr.length, 0)
+    : null;
+
+  // Current task state details
+  const currentAgeMin = task.inProgressAt
+    ? Math.floor((Date.now() - new Date(task.inProgressAt).getTime()) / 60000)
+    : null;
+
+  const resultPath = task.resultPath;
+  const lastError = task.lastError;
+
+  return {
+    task,
+    taskId,
+    events: taskEvents,
+    dispatchHistory,
+    metrics: {
+      attemptCount,
+      avgCycleTimeMin: avgCycleTimeMin !== null ? Math.round(avgCycleTimeMin * 10) / 10 : null,
+      currentAgeMin,
+      lastRunId: task.lastDispatch?.runId || null,
+      lastDispatchAt: task.lastDispatch?.at || null,
+      resultPath,
+      lastError
+    }
+  };
 });
 
 app.listen({ host, port });

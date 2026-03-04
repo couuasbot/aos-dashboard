@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import {
   Activity,
   AlertTriangle,
@@ -7,7 +8,10 @@ import {
   Clock,
   Database,
   HardDrive,
-  ShieldCheck
+  ShieldCheck,
+  ArrowRight,
+  Zap,
+  Gauge
 } from 'lucide-react';
 import {
   BarChart,
@@ -16,7 +20,10 @@ import {
   YAxis,
   Tooltip,
   ResponsiveContainer,
-  CartesianGrid
+  CartesianGrid,
+  PieChart,
+  Pie,
+  Cell
 } from 'recharts';
 import clsx from 'clsx';
 
@@ -41,6 +48,28 @@ type Lock = {
   ttlMs?: number;
   stale?: boolean;
   ageMs?: number;
+};
+
+type LaneMetrics = {
+  lane: Lane;
+  totalTasks: number;
+  backlog: number;
+  inProgress: number;
+  review: number;
+  done: number;
+  failed: number;
+  slaRiskCount: number;
+  oldestInProgressMin: number | null;
+  saturationPercent: number;
+  bottleneckScore: number;
+  slaBreaches: Array<{ taskId: string; ageMin: number; slaMinutes: number; role?: string }>;
+};
+
+type BottleneckAnalysis = {
+  lanes: LaneMetrics[];
+  overallRisk: 'low' | 'medium' | 'high';
+  criticalBottleneck: Lane | null;
+  recommendations: string[];
 };
 
 type Metrics = {
@@ -132,11 +161,15 @@ function pill(tone: 'ok' | 'warn' | 'info') {
 export default function App() {
   const overviewQ = useApi<Overview>('/api/overview');
   const eventsQ = useApi<{ events: AOSEvent[] }>('/api/events?limit=80');
+  const lanesQ = useApi<{ laneMetrics: LaneMetrics[]; bottleneckAnalysis: BottleneckAnalysis }>('/api/lanes');
 
   const overview = overviewQ.data;
   const tasks = overview?.tasks || [];
   const metrics = overview?.metrics;
   const collab = overview?.collab;
+  const lanesData = lanesQ.data;
+  const laneMetrics = lanesData?.laneMetrics || [];
+  const bottleneckAnalysis = lanesData?.bottleneckAnalysis;
 
   const chartData = useMemo(() => {
     if (!metrics) return [];
@@ -209,6 +242,106 @@ export default function App() {
             tone={overview?.lock.exists ? (overview.lock.stale ? 'warn' : 'ok') : 'info'}
             subtitle={overview?.lock.exists ? `${overview.lock.path}` : 'no lock file'}
           />
+        </section>
+
+        {/* Lane View & Bottleneck Detection */}
+        <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          {/* Lane Cards */}
+          <div className="space-y-4">
+            <div className="text-sm font-semibold">Lane View</div>
+            {laneMetrics.length === 0 ? (
+              <div className="text-sm text-slate-600">Loading lane metrics...</div>
+            ) : (
+              laneMetrics.map((lm) => {
+                const laneTone = lm.slaRiskCount > 0 ? 'warn' : lm.bottleneckScore > 40 ? 'warn' : 'ok';
+                return (
+                  <div
+                    key={lm.lane}
+                    className={clsx(
+                      'rounded-xl border p-4 shadow-sm',
+                      laneTone === 'warn' ? 'border-amber-200 bg-amber-50' : 'border-slate-200 bg-white'
+                    )}
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg font-semibold capitalize">{lm.lane}</span>
+                        {bottleneckAnalysis?.criticalBottleneck === lm.lane && (
+                          <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+                            BOTTLENECK
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Gauge className="h-4 w-4" />
+                        <span className="text-sm font-medium">
+                          Score: {lm.bottleneckScore}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-4 gap-2 text-center text-sm">
+                      <div>
+                        <div className="text-xs text-slate-500">Backlog</div>
+                        <div className="font-semibold">{lm.backlog}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-slate-500">In Progress</div>
+                        <div className="font-semibold">{lm.inProgress}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-slate-500">SLA Risk</div>
+                        <div className={clsx('font-semibold', lm.slaRiskCount > 0 ? 'text-amber-700' : 'text-slate-700')}>
+                          {lm.slaRiskCount}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-slate-500">Saturation</div>
+                        <div className="font-semibold">{lm.saturationPercent}%</div>
+                      </div>
+                    </div>
+                    {lm.oldestInProgressMin !== null && (
+                      <div className="mt-2 pt-2 border-t text-xs text-slate-600">
+                        Oldest in-progress: {lm.oldestInProgressMin}min
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* Bottleneck Analysis Chart */}
+          <div className="rounded-xl border bg-white p-4 shadow-sm">
+            <div className="mb-3 flex items-center justify-between">
+              <div className="text-sm font-semibold">Bottleneck Analysis</div>
+              <div className={clsx(
+                'rounded px-2 py-0.5 text-xs font-medium',
+                bottleneckAnalysis?.overallRisk === 'high' ? 'bg-red-100 text-red-700' :
+                bottleneckAnalysis?.overallRisk === 'medium' ? 'bg-amber-100 text-amber-700' :
+                'bg-emerald-100 text-emerald-700'
+              )}>
+                Risk: {bottleneckAnalysis?.overallRisk || 'unknown'}
+              </div>
+            </div>
+            <div className="h-48">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={laneMetrics}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="lane" tick={{ fontSize: 12 }} />
+                  <YAxis allowDecimals={false} />
+                  <Tooltip />
+                  <Bar dataKey="bottleneckScore" name="Bottleneck Score" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="mt-3 space-y-1">
+              {bottleneckAnalysis?.recommendations.slice(0, 3).map((rec, idx) => (
+                <div key={idx} className="flex items-start gap-2 text-xs text-slate-600">
+                  <ArrowRight className="h-3 w-3 mt-0.5 flex-shrink-0" />
+                  <span>{rec}</span>
+                </div>
+              ))}
+            </div>
+          </div>
         </section>
 
         <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -350,7 +483,9 @@ export default function App() {
                   .map((t) => (
                     <tr key={t.taskId} className="border-b last:border-0">
                       <td className="py-2 pr-3 font-medium">
-                        {t.title} <span className="text-slate-500">{t.taskId}</span>
+                        <Link to={`/task/${encodeURIComponent(t.taskId)}`} className="hover:underline hover:text-blue-600">
+                          {t.title} <span className="text-slate-500">{t.taskId}</span>
+                        </Link>
                       </td>
                       <td className="py-2 pr-3">
                         <span className={clsx('rounded border px-2 py-0.5 text-xs', pill(t.state === 'Failed' || t.state === 'Review' ? 'warn' : t.state === 'Done' ? 'ok' : 'info'))}>

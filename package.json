@@ -10,5 +10,8 @@
     "build": "npm run build -w packages/aos-core && npm run build -w apps/api && npm run build -w apps/web",
     "test": "npm run test -ws",
     "lint": "npm run lint -ws"
+  },
+  "devDependencies": {
+    "playwright": "^1.58.2"
   }
 }

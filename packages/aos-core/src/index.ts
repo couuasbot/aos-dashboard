@@ -77,6 +77,28 @@ export type CollabMetrics = {
   };
 };
 
+export type LaneMetrics = {
+  lane: Lane;
+  totalTasks: number;
+  backlog: number;
+  inProgress: number;
+  review: number;
+  done: number;
+  failed: number;
+  slaRiskCount: number;
+  oldestInProgressMin: number | null;
+  saturationPercent: number;
+  bottleneckScore: number;
+  slaBreaches: Array<{ taskId: string; ageMin: number; slaMinutes: number; role?: string }>;
+};
+
+export type BottleneckAnalysis = {
+  lanes: LaneMetrics[];
+  overallRisk: 'low' | 'medium' | 'high';
+  criticalBottleneck: Lane | null;
+  recommendations: string[];
+};
+
 export function resolveWorkspaceRoot(): string {
   const env = process.env.AOS_WORKSPACE_ROOT || process.env.OPENCLAW_WORKSPACE;
   if (env && env.trim()) return env;
@@ -532,5 +554,134 @@ export function computeCollabMetricsFrom(tasks: Task[], events: AOSEvent[], { wi
     windowHours,
     roles: out,
     signals: { validationErrors, mismatchesToReview }
+  };
+}
+
+export function computeLaneMetrics(tasks: Task[]): LaneMetrics[] {
+  const now = Date.now();
+  const lanes: Lane[] = ['execution', 'ops'];
+  const result: LaneMetrics[] = [];
+
+  for (const lane of lanes) {
+    const laneTasks = tasks.filter(t => (t.lane || 'execution') === lane);
+    const totalTasks = laneTasks.length;
+    
+    const backlog = laneTasks.filter(t => t.state === 'Ready' || t.state === 'Inbox').length;
+    const inProgress = laneTasks.filter(t => t.state === 'In Progress').length;
+    const review = laneTasks.filter(t => t.state === 'Review').length;
+    const done = laneTasks.filter(t => t.state === 'Done').length;
+    const failed = laneTasks.filter(t => t.state === 'Failed').length;
+
+    // SLA risk: tasks in progress > 50% of their SLA
+    const slaRiskTasks: Array<{ taskId: string; ageMin: number; slaMinutes: number; role?: string }> = [];
+    let oldestInProgressMs: number | null = null;
+
+    for (const t of laneTasks) {
+      if (t.state === 'In Progress' && t.inProgressAt) {
+        const ageMs = now - new Date(t.inProgressAt).getTime();
+        const ageMin = Math.floor(ageMs / 60000);
+        const slaMinutes = Number(t.slaMinutes || 60);
+        
+        if (oldestInProgressMs === null || ageMs > oldestInProgressMs) {
+          oldestInProgressMs = ageMs;
+        }
+        
+        // At risk if > 50% of SLA elapsed
+        if (ageMin > slaMinutes * 0.5) {
+          slaRiskTasks.push({
+            taskId: t.taskId,
+            ageMin,
+            slaMinutes,
+            role: t.roleHint
+          });
+        }
+      }
+    }
+
+    // Saturation: % of tasks that are in progress relative to total (excluding done)
+    const activeTasks = totalTasks - done;
+    const saturationPercent = activeTasks > 0 ? Math.round((inProgress / activeTasks) * 100) : 0;
+    
+    // Bottleneck score: weighted combination of risk factors
+    // - High in-progress + low throughput = bottleneck
+    // - SLA breaches increase score
+    // - Low done count relative to in-progress indicates stuck
+    const throughputRatio = done > 0 ? inProgress / done : inProgress;
+    const bottleneckScore = Math.min(100, Math.round(
+      (saturationPercent * 0.3) + 
+      (slaRiskTasks.length * 20) + 
+      (throughputRatio * 10) +
+      (failed * 5)
+    ));
+
+    result.push({
+      lane,
+      totalTasks,
+      backlog,
+      inProgress,
+      review,
+      done,
+      failed,
+      slaRiskCount: slaRiskTasks.length,
+      oldestInProgressMin: oldestInProgressMs !== null ? Math.floor(oldestInProgressMs / 60000) : null,
+      saturationPercent,
+      bottleneckScore,
+      slaBreaches: slaRiskTasks
+    });
+  }
+
+  return result;
+}
+
+export function computeBottleneckAnalysis(tasks: Task[]): BottleneckAnalysis {
+  const laneMetrics = computeLaneMetrics(tasks);
+  
+  // Determine overall risk
+  const totalSlaRisk = laneMetrics.reduce((sum, lm) => sum + lm.slaRiskCount, 0);
+  const avgBottleneck = laneMetrics.reduce((sum, lm) => sum + lm.bottleneckScore, 0) / laneMetrics.length;
+  
+  let overallRisk: 'low' | 'medium' | 'high' = 'low';
+  if (totalSlaRisk >= 3 || avgBottleneck >= 60) {
+    overallRisk = 'high';
+  } else if (totalSlaRisk >= 1 || avgBottleneck >= 30) {
+    overallRisk = 'medium';
+  }
+
+  // Find critical bottleneck
+  const sortedByBottleneck = [...laneMetrics].sort((a, b) => b.bottleneckScore - a.bottleneckScore);
+  const criticalBottleneck = sortedByBottleneck[0]?.bottleneckScore > 20 
+    ? sortedByBottleneck[0].lane 
+    : null;
+
+  // Generate recommendations
+  const recommendations: string[] = [];
+  
+  for (const lm of laneMetrics) {
+    if (lm.slaRiskCount > 0) {
+      recommendations.push(`[${lm.lane}] ${lm.slaRiskCount} task(s) approaching SLA limit - review priority`);
+    }
+    if (lm.bottleneckScore >= 50) {
+      recommendations.push(`[${lm.lane}] High bottleneck score (${lm.bottleneckScore}) - consider adding resources or clearing blockers`);
+    }
+    if (lm.oldestInProgressMin !== null && lm.oldestInProgressMin > 120) {
+      recommendations.push(`[${lm.lane}] Task stuck for ${lm.oldestInProgressMin}min - oldest in-progress needs attention`);
+    }
+    if (lm.backlog > 10 && lm.inProgress === 0) {
+      recommendations.push(`[${lm.lane}] Large backlog (${lm.backlog}) but nothing in progress - dispatch needed`);
+    }
+    if (lm.failed > 2) {
+      recommendations.push(`[${lm.lane}] ${lm.failed} failed tasks - review errors and retry`);
+    }
+  }
+
+  if (recommendations.length === 0) {
+    recommendations.push('All lanes operating normally');
+  }
+
+  return {
+    lanes: laneMetrics,
+    overallRisk,
+    criticalBottleneck,
+    recommendations
   };
 }
