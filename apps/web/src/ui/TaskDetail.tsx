@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -10,7 +10,8 @@ import {
   Loader2,
   Play,
   History,
-  Gauge
+  Gauge,
+  FileText
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -75,6 +76,20 @@ type TaskDetailData = {
   metrics: TaskMetrics;
 };
 
+type TaskSummary = {
+  taskId: string;
+  runId: string;
+  summary: string | null;
+  result: {
+    taskId: string;
+    runId: string;
+    status: string;
+    summary: string;
+    outputs: string[];
+    error: { message: string; stack: string } | null;
+  } | null;
+};
+
 function useApi<T>(path: string) {
   return useQuery({
     queryKey: [path],
@@ -109,6 +124,8 @@ function formatDate(iso: string | null | undefined) {
 
 export default function TaskDetail() {
   const { taskId } = useParams<{ taskId: string }>();
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  
   const taskQ = useApi<TaskDetailData>(`/api/task/${encodeURIComponent(taskId || '')}`);
   
   const data = taskQ.data;
@@ -116,6 +133,17 @@ export default function TaskDetail() {
   const events = data?.events || [];
   const dispatchHistory = data?.dispatchHistory || [];
   const metrics = data?.metrics;
+
+  // Auto-select the latest runId if none selected
+  const effectiveRunId = selectedRunId || metrics?.lastRunId;
+  
+  // Fetch summary for the selected run
+  const summaryQ = useApi<TaskSummary>(
+    effectiveRunId 
+      ? `/api/task/${encodeURIComponent(taskId || '')}/run/${encodeURIComponent(effectiveRunId)}/summary`
+      : '/api/task/-/run/-/summary', // dummy path, will 404 but won't break
+    { enabled: !!effectiveRunId }
+  );
 
   const stateTone = !task 
     ? 'info'
@@ -284,6 +312,80 @@ export default function TaskDetail() {
             </div>
           )}
         </section>
+
+        {/* Run Summary */}
+        {effectiveRunId && (
+          <section className="rounded-xl border bg-white p-4 shadow-sm">
+            <div className="mb-4 flex items-center justify-between">
+              <div className="flex items-center gap-2 text-sm font-semibold">
+                <FileText className="h-4 w-4" />
+                Run Summary
+              </div>
+              <div className="flex items-center gap-2">
+                {dispatchHistory.length > 1 && (
+                  <select
+                    value={selectedRunId || metrics?.lastRunId || ''}
+                    onChange={(e) => setSelectedRunId(e.target.value || null)}
+                    className="text-xs border rounded px-2 py-1 bg-white"
+                  >
+                    {dispatchHistory.map((d) => (
+                      <option key={d.runId} value={d.runId || ''}>
+                        {d.runId || 'Unknown'} ({formatDate(d.at)})
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            </div>
+            
+            {summaryQ.isLoading ? (
+              <div className="flex items-center gap-2 text-sm text-slate-600">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading summary...
+              </div>
+            ) : summaryQ.error ? (
+              <div className="text-sm text-slate-600">No summary available for this run.</div>
+            ) : summaryQ.data?.summary ? (
+              <div className="prose prose-sm max-w-none">
+                <div className="text-sm text-slate-700 whitespace-pre-wrap">{summaryQ.data.summary}</div>
+                {summaryQ.data.result?.status && (
+                  <div className="mt-3 pt-3 border-t">
+                    <span className={clsx(
+                      'inline-flex items-center gap-1 text-xs px-2 py-1 rounded',
+                      summaryQ.data.result.status === 'success' 
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : 'bg-red-100 text-red-800'
+                    )}>
+                      {summaryQ.data.result.status === 'success' 
+                        ? <CheckCircle2 className="h-3 w-3" />
+                        : <XCircle className="h-3 w-3" />
+                      }
+                      {summaryQ.data.result.status}
+                    </span>
+                  </div>
+                )}
+              </div>
+            ) : summaryQ.data?.result ? (
+              <div className="text-sm">
+                <div className="text-slate-600 mb-2">{summaryQ.data.result.summary}</div>
+                <span className={clsx(
+                  'inline-flex items-center gap-1 text-xs px-2 py-1 rounded',
+                  summaryQ.data.result.status === 'success' 
+                    ? 'bg-emerald-100 text-emerald-800'
+                    : 'bg-red-100 text-red-800'
+                )}>
+                  {summaryQ.data.result.status === 'success' 
+                    ? <CheckCircle2 className="h-3 w-3" />
+                    : <XCircle className="h-3 w-3" />
+                  }
+                  {summaryQ.data.result.status}
+                </span>
+              </div>
+            ) : (
+              <div className="text-sm text-slate-600">No summary available for this run.</div>
+            )}
+          </section>
+        )}
 
         {/* Task Details */}
         <section className="grid grid-cols-1 md:grid-cols-2 gap-4">

@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import {
@@ -12,7 +12,9 @@ import {
   ArrowRight,
   Zap,
   Gauge,
-  Download
+  Download,
+  Menu,
+  X
 } from 'lucide-react';
 import {
   BarChart,
@@ -137,15 +139,15 @@ function Card(props: {
         : 'border-slate-200 bg-white text-slate-900';
 
   return (
-    <div className={clsx('rounded-xl border p-4 shadow-sm', toneCls)}>
-      <div className="flex items-start justify-between gap-3">
-        <div>
+    <div className={clsx('rounded-xl border p-3 shadow-sm sm:p-4', toneCls)}>
+      <div className="flex items-start justify-between gap-2 sm:gap-3">
+        <div className="min-w-0">
           <div className="text-xs uppercase tracking-wide opacity-70">{props.title}</div>
-          <div className="mt-1 text-2xl font-semibold">{props.value}</div>
-          {props.subtitle ? <div className="mt-1 text-xs opacity-70">{props.subtitle}</div> : null}
+          <div className="mt-1 text-xl font-semibold sm:text-2xl">{props.value}</div>
+          {props.subtitle ? <div className="mt-1 text-xs opacity-70 truncate">{props.subtitle}</div> : null}
         </div>
-        <div className="rounded-lg bg-white/50 p-2">
-          <Icon className="h-5 w-5" />
+        <div className="rounded-lg bg-white/50 p-1.5 sm:p-2">
+          <Icon className="h-4 w-4 sm:h-5 sm:w-5" />
         </div>
       </div>
     </div>
@@ -161,6 +163,8 @@ function pill(tone: 'ok' | 'warn' | 'info') {
 }
 
 export default function App() {
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  
   const overviewQ = useApi<Overview>('/api/overview');
   const eventsQ = useApi<{ events: AOSEvent[] }>('/api/events?limit=80');
   const lanesQ = useApi<{ laneMetrics: LaneMetrics[]; bottleneckAnalysis: BottleneckAnalysis }>('/api/lanes');
@@ -219,26 +223,89 @@ export default function App() {
 
   return (
     <div className="min-h-screen">
-      <header className="border-b bg-white">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4">
-          <div>
-            <div className="text-lg font-semibold">AOS Dashboard</div>
-            <div className="text-sm text-slate-600">
-              Read-only • local-first • reliable metrics
+      {/* Mobile Header with Hamburger */}
+      <header className="border-b bg-white sticky top-0 z-50">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-3 py-3 sm:px-4 sm:py-4">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              className="rounded-lg border p-2 hover:bg-slate-50 lg:hidden"
+              aria-label="Toggle menu"
+            >
+              {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            </button>
+            <div>
+              <div className="text-base font-semibold sm:text-lg">AOS Dashboard</div>
+              <div className="text-xs text-slate-600 hidden sm:block">
+                Read-only • local-first • reliable metrics
+              </div>
             </div>
           </div>
           <div className="text-right text-xs text-slate-500">
-            <div>refresh: 5s</div>
-            {overview?.workspaceRoot ? <div className="mt-1">root: {overview.workspaceRoot}</div> : null}
+            <div className="hidden sm:block">refresh: 5s</div>
+            {overview?.workspaceRoot ? (
+              <div className="mt-1 hidden sm:block">root: {overview.workspaceRoot}</div>
+            ) : null}
           </div>
         </div>
       </header>
 
-      {/* Export Controls */}
-      <div className="bg-slate-50 border-b px-4 py-2">
+      {/* Sidebar - Mobile */}
+      <div className={clsx(
+        'fixed inset-0 z-40 bg-slate-900/50 lg:hidden transition-opacity',
+        sidebarOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
+      )}>
+        <div className={clsx(
+          'fixed left-0 top-0 h-full w-64 bg-white shadow-xl transition-transform duration-300',
+          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+        )}>
+          <div className="flex items-center justify-between border-b p-4">
+            <span className="font-semibold">Menu</span>
+            <button onClick={() => setSidebarOpen(false)} className="p-1">
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+          <nav className="p-4 space-y-2">
+            <div className="text-xs font-semibold uppercase text-slate-500 mb-2">Export Data</div>
+            <button
+              onClick={() => { handleExportTasksJSON(); setSidebarOpen(false); }}
+              className="flex w-full items-center gap-2 rounded-lg border p-2 text-sm hover:bg-slate-50"
+            >
+              <Download className="h-4 w-4" /> Tasks JSON
+            </button>
+            <button
+              onClick={() => { handleExportTasksCSV(); setSidebarOpen(false); }}
+              className="flex w-full items-center gap-2 rounded-lg border p-2 text-sm hover:bg-slate-50"
+            >
+              <Download className="h-4 w-4" /> Tasks CSV
+            </button>
+            <button
+              onClick={() => { handleExportMetricsJSON(); setSidebarOpen(false); }}
+              className="flex w-full items-center gap-2 rounded-lg border p-2 text-sm hover:bg-slate-50"
+            >
+              <Download className="h-4 w-4" /> Metrics JSON
+            </button>
+            <button
+              onClick={() => { handleExportCollabJSON(); setSidebarOpen(false); }}
+              className="flex w-full items-center gap-2 rounded-lg border p-2 text-sm hover:bg-slate-50"
+            >
+              <Download className="h-4 w-4" /> Collab JSON
+            </button>
+            <button
+              onClick={() => { handleExportCollabCSV(); setSidebarOpen(false); }}
+              className="flex w-full items-center gap-2 rounded-lg border p-2 text-sm hover:bg-slate-50"
+            >
+              <Download className="h-4 w-4" /> Collab CSV
+            </button>
+          </nav>
+        </div>
+      </div>
+
+      {/* Export Controls - Desktop */}
+      <div className="bg-slate-50 border-b px-3 py-2 sm:px-4 hidden lg:block">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
           <div className="text-xs text-slate-500">Export Data:</div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <button
               onClick={handleExportTasksJSON}
               className="flex items-center gap-1 rounded border bg-white px-2 py-1 text-xs hover:bg-slate-100"
@@ -273,8 +340,9 @@ export default function App() {
         </div>
       </div>
 
-      <main className="mx-auto grid max-w-6xl gap-4 px-4 py-6">
-        <section className="grid grid-cols-1 gap-4 md:grid-cols-4">
+      <main className="mx-auto grid max-w-6xl gap-3 px-3 py-4 sm:gap-4 sm:px-4 sm:py-6">
+        {/* Stats Cards - Stack on mobile */}
+        <section className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-4">
           <Card title="Total Tasks" value={tasks.length} icon={Activity} />
           <Card title="Ready" value={metrics?.byState['Ready'] ?? '-'} icon={Clock} tone="info" />
           <Card title="In Progress" value={metrics?.byState['In Progress'] ?? '-'} icon={Activity} tone="info" />
@@ -286,7 +354,7 @@ export default function App() {
           />
         </section>
 
-        <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <section className="grid grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-4">
           <Card
             title="Validation Errors (recent)"
             value={collab?.signals.validationErrors ?? '-'}
@@ -311,9 +379,9 @@ export default function App() {
         </section>
 
         {/* Lane View & Bottleneck Detection */}
-        <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <section className="grid grid-cols-1 gap-3 sm:gap-4 lg:grid-cols-2">
           {/* Lane Cards */}
-          <div className="space-y-4">
+          <div className="space-y-3 sm:space-y-4">
             <div className="text-sm font-semibold">Lane View</div>
             {laneMetrics.length === 0 ? (
               <div className="text-sm text-slate-600">Loading lane metrics...</div>
@@ -324,13 +392,13 @@ export default function App() {
                   <div
                     key={lm.lane}
                     className={clsx(
-                      'rounded-xl border p-4 shadow-sm',
+                      'rounded-xl border p-3 shadow-sm sm:p-4',
                       laneTone === 'warn' ? 'border-amber-200 bg-amber-50' : 'border-slate-200 bg-white'
                     )}
                   >
-                    <div className="flex items-center justify-between mb-3">
+                    <div className="flex flex-col gap-2 mb-3 sm:flex-row sm:items-center sm:justify-between">
                       <div className="flex items-center gap-2">
-                        <span className="text-lg font-semibold capitalize">{lm.lane}</span>
+                        <span className="text-base font-semibold capitalize sm:text-lg">{lm.lane}</span>
                         {bottleneckAnalysis?.criticalBottleneck === lm.lane && (
                           <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
                             BOTTLENECK
@@ -344,7 +412,7 @@ export default function App() {
                         </span>
                       </div>
                     </div>
-                    <div className="grid grid-cols-4 gap-2 text-center text-sm">
+                    <div className="grid grid-cols-2 gap-2 text-center text-sm sm:grid-cols-4">
                       <div>
                         <div className="text-xs text-slate-500">Backlog</div>
                         <div className="font-semibold">{lm.backlog}</div>
@@ -376,8 +444,8 @@ export default function App() {
           </div>
 
           {/* Bottleneck Analysis Chart */}
-          <div className="rounded-xl border bg-white p-4 shadow-sm">
-            <div className="mb-3 flex items-center justify-between">
+          <div className="rounded-xl border bg-white p-3 shadow-sm sm:p-4">
+            <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div className="text-sm font-semibold">Bottleneck Analysis</div>
               <div className={clsx(
                 'rounded px-2 py-0.5 text-xs font-medium',
@@ -388,13 +456,13 @@ export default function App() {
                 Risk: {bottleneckAnalysis?.overallRisk || 'unknown'}
               </div>
             </div>
-            <div className="h-48">
+            <div className="h-40 sm:h-48">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={laneMetrics}>
                   <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="lane" tick={{ fontSize: 12 }} />
-                  <YAxis allowDecimals={false} />
-                  <Tooltip />
+                  <XAxis dataKey="lane" tick={{ fontSize: 10 }} interval={0} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 10 }} />
+                  <Tooltip contentStyle={{ fontSize: 12 }} />
                   <Bar dataKey="bottleneckScore" name="Bottleneck Score" fill="#f59e0b" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
@@ -410,65 +478,66 @@ export default function App() {
           </div>
         </section>
 
-        <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <div className="rounded-xl border bg-white p-4 shadow-sm">
-            <div className="mb-3 flex items-center justify-between">
+        {/* Charts Section */}
+        <section className="grid grid-cols-1 gap-3 sm:gap-4 lg:grid-cols-2">
+          <div className="rounded-xl border bg-white p-3 shadow-sm sm:p-4">
+            <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
               <div className="text-sm font-semibold">Tasks by State</div>
               <div className="text-xs text-slate-500">projected from workflow-events.jsonl</div>
             </div>
-            <div className="h-64">
+            <div className="h-48 sm:h-64">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={chartData}>
+                <BarChart data={chartData} layout="vertical">
                   <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="state" tick={{ fontSize: 12 }} />
-                  <YAxis allowDecimals={false} />
-                  <Tooltip />
-                  <Bar dataKey="count" fill="#334155" radius={[6, 6, 0, 0]} />
+                  <XAxis type="number" allowDecimals={false} tick={{ fontSize: 10 }} />
+                  <YAxis dataKey="state" type="category" tick={{ fontSize: 10 }} width={80} />
+                  <Tooltip contentStyle={{ fontSize: 12 }} />
+                  <Bar dataKey="count" fill="#334155" radius={[0, 6, 6, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
           </div>
 
-          <div className="rounded-xl border bg-white p-4 shadow-sm">
-            <div className="mb-3 flex items-center justify-between">
+          <div className="rounded-xl border bg-white p-3 shadow-sm sm:p-4">
+            <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
               <div className="text-sm font-semibold">Agent Collaboration (current)</div>
               <div className="text-xs text-slate-500">by roleHint</div>
             </div>
-            <div className="h-64">
+            <div className="h-48 sm:h-64">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={roleData}>
+                <BarChart data={roleData} layout="vertical">
                   <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="role" tick={{ fontSize: 12 }} />
-                  <YAxis allowDecimals={false} />
-                  <Tooltip />
-                  <Bar dataKey="inProgress" stackId="a" fill="#0f172a" />
-                  <Bar dataKey="ready" stackId="a" fill="#64748b" />
-                  <Bar dataKey="review" stackId="a" fill="#f59e0b" />
+                  <XAxis type="number" allowDecimals={false} tick={{ fontSize: 10 }} />
+                  <YAxis dataKey="role" type="category" tick={{ fontSize: 10 }} width={60} />
+                  <Tooltip contentStyle={{ fontSize: 12 }} />
+                  <Bar dataKey="inProgress" stackId="a" fill="#0f172a" name="In Progress" />
+                  <Bar dataKey="ready" stackId="a" fill="#64748b" name="Ready" />
+                  <Bar dataKey="review" stackId="a" fill="#f59e0b" name="Review" />
                 </BarChart>
               </ResponsiveContainer>
             </div>
           </div>
         </section>
 
-        <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <div className="rounded-xl border bg-white p-4 shadow-sm">
+        <section className="grid grid-cols-1 gap-3 sm:gap-4 lg:grid-cols-2">
+          <div className="rounded-xl border bg-white p-3 shadow-sm sm:p-4">
             <div className="mb-3 text-sm font-semibold">SLA Breaches</div>
             {!metrics || metrics.slaBreaches.length === 0 ? (
               <div className="text-sm text-slate-600">No breaches.</div>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-2 max-h-64 overflow-y-auto">
                 {metrics.slaBreaches.slice(0, 10).map((b) => (
                   <div
                     key={b.taskId}
-                    className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 p-2 text-sm"
+                    className="flex flex-col gap-1 rounded-lg border border-amber-200 bg-amber-50 p-2 text-sm sm:flex-row sm:items-center sm:justify-between"
                   >
                     <div className="font-medium">
                       {b.taskId}{' '}
-                      <span className="ml-2 rounded border px-1.5 py-0.5 text-xs text-slate-700">
+                      <span className="ml-1 sm:ml-2 rounded border px-1.5 py-0.5 text-xs text-slate-700">
                         {b.lane || 'execution'} / {b.role || 'unknown'}
                       </span>
                     </div>
-                    <div className="text-slate-700">
+                    <div className="text-slate-700 text-xs sm:text-sm">
                       {b.ageMin}m / SLA {b.slaMinutes}m
                     </div>
                   </div>
@@ -477,39 +546,39 @@ export default function App() {
             )}
           </div>
 
-          <div className="rounded-xl border bg-white p-4 shadow-sm">
-            <div className="mb-3 flex items-center justify-between">
+          <div className="rounded-xl border bg-white p-3 shadow-sm sm:p-4">
+            <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
               <div className="text-sm font-semibold">Roles (recent {collab?.windowHours ?? 24}h)</div>
               <div className="text-xs text-slate-500">dispatch & cycle time</div>
             </div>
             {!collab ? (
               <div className="text-sm text-slate-600">Loading…</div>
             ) : (
-              <div className="overflow-auto">
-                <table className="w-full min-w-[680px] text-left text-sm">
+              <div className="overflow-x-auto -mx-3 px-3 sm:-mx-4 sm:px-4">
+                <table className="w-full min-w-[600px] text-left text-xs sm:text-sm">
                   <thead className="border-b text-xs uppercase tracking-wide text-slate-500">
                     <tr>
-                      <th className="py-2 pr-3">Role</th>
-                      <th className="py-2 pr-3">InProg</th>
-                      <th className="py-2 pr-3">Ready</th>
-                      <th className="py-2 pr-3">Review</th>
-                      <th className="py-2 pr-3">Dispatched</th>
-                      <th className="py-2 pr-3">Done</th>
-                      <th className="py-2 pr-3">Failed</th>
-                      <th className="py-2 pr-3">Avg Cycle</th>
+                      <th className="py-2 pr-2">Role</th>
+                      <th className="py-2 pr-2">InProg</th>
+                      <th className="py-2 pr-2">Ready</th>
+                      <th className="py-2 pr-2">Review</th>
+                      <th className="py-2 pr-2">Dispatched</th>
+                      <th className="py-2 pr-2">Done</th>
+                      <th className="py-2 pr-2">Failed</th>
+                      <th className="py-2 pr-2">Avg Cycle</th>
                     </tr>
                   </thead>
                   <tbody>
                     {collab.roles.map((r) => (
                       <tr key={r.role} className="border-b last:border-0">
-                        <td className="py-2 pr-3 font-medium">{r.role}</td>
-                        <td className="py-2 pr-3">{r.current.inProgress}</td>
-                        <td className="py-2 pr-3">{r.current.ready}</td>
-                        <td className="py-2 pr-3">{r.current.review}</td>
-                        <td className="py-2 pr-3">{r.recent.dispatched}</td>
-                        <td className="py-2 pr-3">{r.recent.completedDone}</td>
-                        <td className="py-2 pr-3">{r.recent.completedFailed}</td>
-                        <td className="py-2 pr-3 text-slate-600">
+                        <td className="py-2 pr-2 font-medium">{r.role}</td>
+                        <td className="py-2 pr-2">{r.current.inProgress}</td>
+                        <td className="py-2 pr-2">{r.current.ready}</td>
+                        <td className="py-2 pr-2">{r.current.review}</td>
+                        <td className="py-2 pr-2">{r.recent.dispatched}</td>
+                        <td className="py-2 pr-2">{r.recent.completedDone}</td>
+                        <td className="py-2 pr-2">{r.recent.completedFailed}</td>
+                        <td className="py-2 pr-2 text-slate-600">
                           {r.recent.avgCycleTimeMin === null ? '-' : `${r.recent.avgCycleTimeMin}m`}
                         </td>
                       </tr>
@@ -521,25 +590,25 @@ export default function App() {
           </div>
         </section>
 
-        <section className="rounded-xl border bg-white p-4 shadow-sm">
-          <div className="mb-3 flex items-center justify-between">
+        <section className="rounded-xl border bg-white p-3 shadow-sm sm:p-4">
+          <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
             <div className="text-sm font-semibold">Queue</div>
             <div className="text-xs text-slate-500">
               {overviewQ.isLoading ? 'loading…' : overviewQ.isError ? 'error' : `${tasks.length} tasks`}
             </div>
           </div>
 
-          <div className="overflow-auto">
-            <table className="w-full min-w-[900px] text-left text-sm">
+          <div className="overflow-x-auto -mx-3 px-3 sm:-mx-4 sm:px-4">
+            <table className="w-full min-w-[700px] text-left text-xs sm:text-sm">
               <thead className="border-b text-xs uppercase tracking-wide text-slate-500">
                 <tr>
-                  <th className="py-2 pr-3">Task</th>
-                  <th className="py-2 pr-3">State</th>
-                  <th className="py-2 pr-3">Lane</th>
-                  <th className="py-2 pr-3">Role</th>
-                  <th className="py-2 pr-3">SLA</th>
-                  <th className="py-2 pr-3">InProgressAt</th>
-                  <th className="py-2 pr-3">runId</th>
+                  <th className="py-2 pr-2">Task</th>
+                  <th className="py-2 pr-2">State</th>
+                  <th className="py-2 pr-2">Lane</th>
+                  <th className="py-2 pr-2">Role</th>
+                  <th className="py-2 pr-2">SLA</th>
+                  <th className="py-2 pr-2">InProgressAt</th>
+                  <th className="py-2 pr-2">runId</th>
                 </tr>
               </thead>
               <tbody>
@@ -548,21 +617,21 @@ export default function App() {
                   .sort((a, b) => String(b.inProgressAt || '').localeCompare(String(a.inProgressAt || '')))
                   .map((t) => (
                     <tr key={t.taskId} className="border-b last:border-0">
-                      <td className="py-2 pr-3 font-medium">
-                        <Link to={`/task/${encodeURIComponent(t.taskId)}`} className="hover:underline hover:text-blue-600">
+                      <td className="py-2 pr-2 font-medium max-w-[150px] sm:max-w-none">
+                        <Link to={`/task/${encodeURIComponent(t.taskId)}`} className="hover:underline hover:text-blue-600 truncate block">
                           {t.title} <span className="text-slate-500">{t.taskId}</span>
                         </Link>
                       </td>
-                      <td className="py-2 pr-3">
-                        <span className={clsx('rounded border px-2 py-0.5 text-xs', pill(t.state === 'Failed' || t.state === 'Review' ? 'warn' : t.state === 'Done' ? 'ok' : 'info'))}>
+                      <td className="py-2 pr-2">
+                        <span className={clsx('rounded border px-1.5 py-0.5 text-xs', pill(t.state === 'Failed' || t.state === 'Review' ? 'warn' : t.state === 'Done' ? 'ok' : 'info'))}>
                           {t.state}
                         </span>
                       </td>
-                      <td className="py-2 pr-3">{t.lane || 'execution'}</td>
-                      <td className="py-2 pr-3">{t.roleHint || '-'}</td>
-                      <td className="py-2 pr-3">{t.slaMinutes || 60}m</td>
-                      <td className="py-2 pr-3 text-slate-600">{t.inProgressAt || '-'}</td>
-                      <td className="py-2 pr-3 font-mono text-xs text-slate-600">{t.lastDispatch?.runId || '-'}</td>
+                      <td className="py-2 pr-2">{t.lane || 'execution'}</td>
+                      <td className="py-2 pr-2">{t.roleHint || '-'}</td>
+                      <td className="py-2 pr-2">{t.slaMinutes || 60}m</td>
+                      <td className="py-2 pr-2 text-slate-600">{t.inProgressAt || '-'}</td>
+                      <td className="py-2 pr-2 font-mono text-xs text-slate-600">{t.lastDispatch?.runId || '-'}</td>
                     </tr>
                   ))}
               </tbody>
@@ -570,25 +639,25 @@ export default function App() {
           </div>
         </section>
 
-        <section className="rounded-xl border bg-white p-4 shadow-sm">
-          <div className="mb-3 flex items-center justify-between">
+        <section className="rounded-xl border bg-white p-3 shadow-sm sm:p-4">
+          <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
             <div className="text-sm font-semibold">Recent Events (tail)</div>
             <div className="text-xs text-slate-500">audit trail • last {eventsQ.data?.events.length ?? 0}</div>
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-2 max-h-96 overflow-y-auto">
             {(eventsQ.data?.events || []).slice().reverse().slice(0, 60).map((e) => {
               const p = e.payload || {};
               const taskId = p.taskId || '';
               const runId = p.runId || '';
               return (
-                <div key={e.id} className="flex items-start justify-between gap-3 rounded-lg border bg-slate-50 p-2 text-xs">
+                <div key={e.id} className="flex flex-col gap-2 rounded-lg border bg-slate-50 p-2 text-xs sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0">
                     <div className="font-mono text-slate-700">{e.timestamp}</div>
-                    <div className="mt-0.5">
+                    <div className="mt-0.5 flex flex-wrap gap-1">
                       <span className="rounded border bg-white px-2 py-0.5 font-semibold">{e.type}</span>
-                      {taskId ? <span className="ml-2 font-mono text-slate-700">{taskId}</span> : null}
-                      {runId ? <span className="ml-2 font-mono text-slate-500">runId={runId}</span> : null}
+                      {taskId ? <span className="font-mono text-slate-700">{taskId}</span> : null}
+                      {runId ? <span className="font-mono text-slate-500">runId={runId}</span> : null}
                     </div>
                   </div>
                   <div className="max-w-[50%] truncate font-mono text-slate-500">{e.agent || ''}</div>
@@ -598,7 +667,7 @@ export default function App() {
           </div>
         </section>
 
-        <footer className="pb-6 text-center text-xs text-slate-500">
+        <footer className="pb-4 text-center text-xs text-slate-500 sm:pb-6">
           <div className="flex items-center justify-center gap-2">
             <Database className="h-4 w-4" />
             <span>Read-only dashboard. No control-plane actions.</span>

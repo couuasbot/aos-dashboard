@@ -1,5 +1,6 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import fs from 'node:fs/promises';
 
 import {
   readEventsTail,
@@ -185,6 +186,59 @@ app.get('/api/task/:taskId', async (req) => {
       resultPath,
       lastError
     }
+  };
+});
+
+// Endpoint to fetch human-readable summary for a task run
+app.get('/api/task/:taskId/run/:runId/summary', async (req) => {
+  const workspaceRoot = resolveWorkspaceRoot();
+  const taskId = (req.params as Record<string, string>).taskId;
+  const runId = (req.params as Record<string, string>).runId;
+
+  if (!taskId || !runId) {
+    return { error: 'taskId and runId are required' };
+  }
+
+  // Artifacts directory structure: /artifacts/aos-tasks/{taskId}/{runId}/
+  // The summary.md is at: {artifactsDir}/{runId}/summary.md
+  // And result.json is at: {artifactsDir}/{runId}/result.json
+
+  const tasksMap = await getTasksState(workspaceRoot);
+  const task = tasksMap.get(taskId);
+
+  if (!task) {
+    return { error: `Task ${taskId} not found`, taskId };
+  }
+
+  // Use task's artifactsDir if available, otherwise construct from taskId
+  const artifactsDir = task.artifactsDir || `${workspaceRoot}/artifacts/aos-tasks/${taskId.replace('#', '')}`;
+  const runDir = `${artifactsDir}/${runId}`;
+
+  // Try to read summary.md
+  const summaryPath = `${runDir}/summary.md`;
+  let summaryContent: string | null = null;
+  let resultJson: any = null;
+
+  try {
+    summaryContent = await fs.readFile(summaryPath, 'utf8');
+  } catch {
+    // Summary not found, try result.json as fallback
+  }
+
+  // Try to read result.json
+  const resultPath = `${runDir}/result.json`;
+  try {
+    const resultContent = await fs.readFile(resultPath, 'utf8');
+    resultJson = JSON.parse(resultContent);
+  } catch {
+    // result.json not found
+  }
+
+  return {
+    taskId,
+    runId,
+    summary: summaryContent,
+    result: resultJson
   };
 });
 
