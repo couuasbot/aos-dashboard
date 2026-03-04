@@ -1,13 +1,13 @@
 #!/bin/bash
-# AOS Dashboard v0.3 Release Smoke Script
+# AOS Dashboard v0.4 Release Smoke Script
 # Runs: npm test, npm build, starts api+web locally, captures homepage screenshot
-# Output: artifacts/homepage-screenshot.png
+# Output: artifacts/homepage-screenshot-v0.4.png
 
 set -e
 
 REPO_DIR="/home/ubuntu/.openclaw/workspace-god/repos/aos-dashboard"
-OUTPUT_DIR="/home/ubuntu/.openclaw/workspace-god/artifacts/aos-tasks/aosdash-v0.3-003"
-SCREENSHOT_PATH="$OUTPUT_DIR/homepage-screenshot.png"
+OUTPUT_DIR="/home/ubuntu/.openclaw/workspace-god/artifacts/aos-tasks/aosdash-v0.4-003/run_1772654747664_fltg"
+SCREENSHOT_PATH="$OUTPUT_DIR/homepage-screenshot-v0.4.png"
 
 mkdir -p "$OUTPUT_DIR"
 

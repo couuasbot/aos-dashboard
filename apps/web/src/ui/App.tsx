@@ -11,7 +11,8 @@ import {
   ShieldCheck,
   ArrowRight,
   Zap,
-  Gauge
+  Gauge,
+  Download
 } from 'lucide-react';
 import {
   BarChart,
@@ -26,6 +27,7 @@ import {
   Cell
 } from 'recharts';
 import clsx from 'clsx';
+import { toCSV, downloadJSON, downloadCSV, taskColumns, transformCollabRoles, collabRoleExportColumns } from './export';
 
 type Lane = 'execution' | 'ops';
 
@@ -190,6 +192,31 @@ export default function App() {
 
   const breachTone = metrics && metrics.slaBreachesCount > 0 ? 'warn' : 'ok';
 
+  // Export handlers
+  const handleExportTasksJSON = () => {
+    downloadJSON(tasks, `tasks-${new Date().toISOString().slice(0,10)}.json`);
+  };
+
+  const handleExportTasksCSV = () => {
+    const csv = toCSV(tasks, taskColumns);
+    downloadCSV(csv, `tasks-${new Date().toISOString().slice(0,10)}.csv`);
+  };
+
+  const handleExportMetricsJSON = () => {
+    downloadJSON(metrics, `metrics-${new Date().toISOString().slice(0,10)}.json`);
+  };
+
+  const handleExportCollabJSON = () => {
+    downloadJSON(collab, `collab-${new Date().toISOString().slice(0,10)}.json`);
+  };
+
+  const handleExportCollabCSV = () => {
+    if (!collab) return;
+    const exportData = transformCollabRoles(collab.roles);
+    const csv = toCSV(exportData, collabRoleExportColumns);
+    downloadCSV(csv, `collab-roles-${new Date().toISOString().slice(0,10)}.csv`);
+  };
+
   return (
     <div className="min-h-screen">
       <header className="border-b bg-white">
@@ -206,6 +233,45 @@ export default function App() {
           </div>
         </div>
       </header>
+
+      {/* Export Controls */}
+      <div className="bg-slate-50 border-b px-4 py-2">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
+          <div className="text-xs text-slate-500">Export Data:</div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleExportTasksJSON}
+              className="flex items-center gap-1 rounded border bg-white px-2 py-1 text-xs hover:bg-slate-100"
+            >
+              <Download className="h-3 w-3" /> Tasks JSON
+            </button>
+            <button
+              onClick={handleExportTasksCSV}
+              className="flex items-center gap-1 rounded border bg-white px-2 py-1 text-xs hover:bg-slate-100"
+            >
+              <Download className="h-3 w-3" /> Tasks CSV
+            </button>
+            <button
+              onClick={handleExportMetricsJSON}
+              className="flex items-center gap-1 rounded border bg-white px-2 py-1 text-xs hover:bg-slate-100"
+            >
+              <Download className="h-3 w-3" /> Metrics JSON
+            </button>
+            <button
+              onClick={handleExportCollabJSON}
+              className="flex items-center gap-1 rounded border bg-white px-2 py-1 text-xs hover:bg-slate-100"
+            >
+              <Download className="h-3 w-3" /> Collab JSON
+            </button>
+            <button
+              onClick={handleExportCollabCSV}
+              className="flex items-center gap-1 rounded border bg-white px-2 py-1 text-xs hover:bg-slate-100"
+            >
+              <Download className="h-3 w-3" /> Collab CSV
+            </button>
+          </div>
+        </div>
+      </div>
 
       <main className="mx-auto grid max-w-6xl gap-4 px-4 py-6">
         <section className="grid grid-cols-1 gap-4 md:grid-cols-4">
