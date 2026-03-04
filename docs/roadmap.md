@@ -23,6 +23,6 @@
 ## v1.0
 
 - Stable contracts
-- Pluggable data sources
-- Optional auth for remote hosting
+- **Read-only guarantee (no mutations / no control-plane actions)**
+- **Local-first deployment** (runs on the same machine as the AOS workspace)
 - Full test coverage for projection semantics

@@ -31,7 +31,8 @@ Build a long-lived, open-source project that provides a **beautiful, reliable da
 ### Non-Functional
 
 - **Reliability > fancy**: never crash on partial lines / malformed JSON; degrade gracefully.
-- **Read-only by default** (no destructive actions).
+- **Read-only until v1.0** (no destructive actions).
+- **Local-first deployment** until v1.0 (runs on the same machine as the AOS workspace).
 - **Low coupling**: point to an AOS workspace via env var.
 - **Pretty UI**: modern layout, clear typography, charts.
 
