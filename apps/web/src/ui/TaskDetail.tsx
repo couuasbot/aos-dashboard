@@ -11,7 +11,9 @@ import {
   Play,
   History,
   Gauge,
-  FileText
+  FileText,
+  GitBranch,
+  ArrowRight
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -108,6 +110,189 @@ function pill(tone: 'ok' | 'warn' | 'info') {
     : tone === 'warn'
       ? 'border-amber-200 bg-amber-50 text-amber-900'
       : 'border-slate-200 bg-slate-50 text-slate-700';
+}
+
+// State Transition Diagram Component
+type StateTransitionDiagramProps = {
+  events: TaskEvent[];
+  currentState: TaskState;
+  dispatchHistory: DispatchEntry[];
+};
+
+function StateTransitionDiagram({ events, currentState, dispatchHistory }: StateTransitionDiagramProps) {
+  // Calculate time spent in each state from events
+  const stateTimes = useMemo(() => {
+    const times: Record<string, number> = { 'Inbox': 0, 'Ready': 0, 'In Progress': 0, 'Review': 0 };
+    const sortedEvents = [...events].sort((a, b) =>
+      new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    );
+
+    let lastState: string | null = null;
+    let lastTime: number | null = null;
+
+    for (const e of sortedEvents) {
+      if (e.type === 'TASK_STATE' || e.type === 'TASK_CREATE') {
+        const newState = e.payload?.state || (e.type === 'TASK_CREATE' ? 'Inbox' : null);
+        if (lastState && lastTime) {
+          const currentTime = new Date(e.timestamp).getTime();
+          const duration = currentTime - lastTime;
+          if (lastState in times) {
+            times[lastState] += duration;
+          }
+        }
+        if (newState) {
+          lastState = newState;
+          lastTime = new Date(e.timestamp).getTime();
+        }
+      }
+    }
+
+    // Add time to current state if still in progress
+    if (lastState && lastTime) {
+      const now = Date.now();
+      if (lastState in times) {
+        times[lastState] += now - lastTime;
+      }
+    }
+
+    return times;
+  }, [events]);
+
+  // Format duration in minutes/hours
+  const formatDuration = (ms: number) => {
+    if (ms < 60000) return '<1m';
+    const mins = Math.floor(ms / 60000);
+    if (mins < 60) return `${mins}m`;
+    const hours = Math.floor(mins / 60);
+    const remainingMins = mins % 60;
+    return remainingMins > 0 ? `${hours}h ${remainingMins}m` : `${hours}h`;
+  };
+
+  // Determine which states have been visited
+  const visitedStates = useMemo(() => {
+    const visited = new Set<string>();
+    for (const e of events) {
+      if (e.type === 'TASK_STATE' || e.type === 'TASK_CREATE') {
+        const state = e.payload?.state || (e.type === 'TASK_CREATE' ? 'Inbox' : null);
+        if (state) visited.add(state);
+      }
+    }
+    if (currentState) visited.add(currentState);
+    return visited;
+  }, [events, currentState]);
+
+  // States to show in the diagram
+  const states = [
+    { id: 'Ready', label: 'Ready', icon: Clock, color: 'slate' },
+    { id: 'In Progress', label: 'In Progress', icon: Play, color: 'blue' },
+    { id: 'Done', label: 'Done', icon: CheckCircle2, color: 'emerald' },
+    { id: 'Failed', label: 'Failed', icon: XCircle, color: 'red' }
+  ];
+
+  return (
+    <div className="rounded-xl border bg-white p-4 shadow-sm">
+      <div className="mb-4 flex items-center gap-2 text-sm font-semibold">
+        <GitBranch className="h-4 w-4" />
+        State Transition
+      </div>
+
+      {/* SVG Flow Diagram */}
+      <div className="mb-4 overflow-x-auto">
+        <svg width="600" height="80" className="mx-auto">
+          {/* Flow lines */}
+          <defs>
+            <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+              <polygon points="0 0, 10 3.5, 0 7" fill="#94a3b8" />
+            </marker>
+          </defs>
+
+          {/* Ready → In Progress */}
+          <line x1="80" y1="40" x2="160" y2="40" stroke={visitedStates.has('Ready') && visitedStates.has('In Progress') ? '#3b82f6' : '#e2e8f0'} strokeWidth="2" markerEnd="url(#arrowhead)" />
+          
+          {/* In Progress → Done */}
+          <line x1="260" y1="40" x2="340" y2="40" stroke={currentState === 'Done' || (visitedStates.has('Done')) ? '#10b981' : '#e2e8f0'} strokeWidth="2" markerEnd="url(#arrowhead)" />
+          
+          {/* In Progress → Failed (branch) */}
+          <path d="M 210 40 Q 230 40 230 60 Q 230 80 280 80" stroke={currentState === 'Failed' || visitedStates.has('Failed') ? '#ef4444' : '#e2e8f0'} strokeWidth="2" fill="none" markerEnd="url(#arrowhead)" />
+
+          {/* State nodes */}
+          {/* Ready */}
+          <g transform="translate(30, 25)">
+            <rect width="50" height="30" rx="6" fill={visitedStates.has('Ready') ? '#f1f5f9' : '#f8fafc'} stroke={currentState === 'Ready' ? '#3b82f6' : '#cbd5e1'} strokeWidth="2" />
+            <text x="25" y="20" textAnchor="middle" fontSize="10" fill="#475569">Ready</text>
+          </g>
+
+          {/* In Progress */}
+          <g transform="translate(170, 25)">
+            <rect width="80" height="30" rx="6" fill={visitedStates.has('In Progress') ? '#eff6ff' : '#f8fafc'} stroke={currentState === 'In Progress' ? '#3b82f6' : '#cbd5e1'} strokeWidth="2" />
+            <text x="40" y="20" textAnchor="middle" fontSize="10" fill="#1e40af">In Progress</text>
+          </g>
+
+          {/* Done */}
+          <g transform="translate(350, 25)">
+            <rect width="50" height="30" rx="6" fill={currentState === 'Done' ? '#d1fae5' : '#f8fafc'} stroke={currentState === 'Done' ? '#10b981' : '#cbd5e1'} strokeWidth="2" />
+            <text x="25" y="20" textAnchor="middle" fontSize="10" fill="#065f46">Done</text>
+          </g>
+
+          {/* Failed (branch) */}
+          <g transform="translate(290, 65)">
+            <rect width="50" height="30" rx="6" fill={currentState === 'Failed' ? '#fee2e2' : '#f8fafc'} stroke={currentState === 'Failed' ? '#ef4444' : '#cbd5e1'} strokeWidth="2" />
+            <text x="25" y="20" textAnchor="middle" fontSize="10" fill="#991b1b">Failed</text>
+          </g>
+
+          {/* Branch label */}
+          <text x="245" y="95" textAnchor="middle" fontSize="8" fill="#94a3b8">branch</text>
+        </svg>
+      </div>
+
+      {/* Time in each state */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {states.map(({ id, label, icon: Icon, color }) => {
+          const hasVisited = visitedStates.has(id);
+          const isCurrent = currentState === id;
+          const timeMs = stateTimes[id] || 0;
+
+          const colorClasses = {
+            slate: { bg: 'bg-slate-50', border: 'border-slate-200', text: 'text-slate-700' },
+            blue: { bg: 'bg-blue-50', border: 'border-blue-200', text: 'text-blue-700' },
+            emerald: { bg: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-700' },
+            red: { bg: 'bg-red-50', border: 'border-red-200', text: 'text-red-700' }
+          };
+          const colors = colorClasses[color as keyof typeof colorClasses];
+
+          return (
+            <div
+              key={id}
+              className={clsx(
+                'rounded-lg border p-3 text-center',
+                isCurrent ? colors.border : 'border-slate-100',
+                hasVisited ? colors.bg : 'bg-slate-25'
+              )}
+            >
+              <div className={clsx('flex justify-center mb-1', isCurrent && colors.text)}>
+                <Icon className="h-4 w-4" />
+              </div>
+              <div className={clsx('text-xs font-medium', hasVisited ? colors.text : 'text-slate-400')}>
+                {label}
+              </div>
+              <div className={clsx('text-sm font-semibold', hasVisited ? 'text-slate-900' : 'text-slate-300')}>
+                {hasVisited ? formatDuration(timeMs) : '-'}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Dispatch cycles info */}
+      {dispatchHistory.length > 0 && (
+        <div className="mt-3 pt-3 border-t">
+          <div className="text-xs text-slate-500">
+            {dispatchHistory.length} dispatch cycle{dispatchHistory.length !== 1 ? 's' : ''} • Current: <span className={currentState === 'Done' ? 'text-emerald-600' : currentState === 'Failed' ? 'text-red-600' : 'text-amber-600'}>{currentState}</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function formatTime(iso: string | null | undefined) {
@@ -248,6 +433,13 @@ export default function TaskDetail() {
             </div>
           </div>
         </section>
+
+        {/* State Transition Diagram */}
+        <StateTransitionDiagram
+          events={events}
+          currentState={task.state}
+          dispatchHistory={dispatchHistory}
+        />
 
         {/* Dispatch History */}
         <section className="rounded-xl border bg-white p-4 shadow-sm">

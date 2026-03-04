@@ -303,8 +303,16 @@ export default function App() {
 
   return (
     <div className="min-h-screen">
+      {/* Skip link for keyboard users */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:bg-blue-600 focus:text-white focus:px-4 focus:py-2 focus:rounded-lg focus:outline-none"
+      >
+        Skip to main content
+      </a>
+
       {/* Mobile Header with Hamburger */}
-      <header className="border-b bg-white sticky top-0 z-50">
+      <header className="border-b bg-white sticky top-0 z-50" role="banner">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-3 py-3 sm:px-4 sm:py-4">
           <div className="flex items-center gap-3">
             <button
@@ -493,7 +501,7 @@ export default function App() {
         </div>
       </div>
 
-      <main className="mx-auto grid max-w-6xl gap-3 px-3 py-4 sm:gap-4 sm:px-4 sm:py-6">
+      <main id="main-content" className="mx-auto grid max-w-6xl gap-3 px-3 py-4 sm:gap-4 sm:px-4 sm:py-6" role="main" aria-label="Dashboard content">
         {/* Stats Cards - Stack on mobile */}
         <section className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-4">
           <Card title="Total Tasks" value={tasks.length} icon={Activity} />
@@ -597,7 +605,7 @@ export default function App() {
           </div>
 
           {/* Bottleneck Analysis Chart */}
-          <div className="rounded-xl border bg-white p-3 shadow-sm sm:p-4">
+          <div className="rounded-xl border bg-white p-3 shadow-sm sm:p-4" role="figure" aria-label="Bottleneck Analysis Chart">
             <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div className="text-sm font-semibold">Bottleneck Analysis</div>
               <div className={clsx(
@@ -633,12 +641,12 @@ export default function App() {
 
         {/* Charts Section */}
         <section className="grid grid-cols-1 gap-3 sm:gap-4 lg:grid-cols-2">
-          <div className="rounded-xl border bg-white p-3 shadow-sm sm:p-4">
+          <div className="rounded-xl border bg-white p-3 shadow-sm sm:p-4" role="figure" aria-label="Tasks by State Chart">
             <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
               <div className="text-sm font-semibold">Tasks by State</div>
               <div className="text-xs text-slate-500">projected from workflow-events.jsonl</div>
             </div>
-            <div className="h-48 sm:h-64">
+            <div className="h-48 sm:h-64" role="img" aria-label="Bar chart showing task counts by state">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={chartData} layout="vertical">
                   <CartesianGrid strokeDasharray="3 3" />
@@ -651,12 +659,12 @@ export default function App() {
             </div>
           </div>
 
-          <div className="rounded-xl border bg-white p-3 shadow-sm sm:p-4">
+          <div className="rounded-xl border bg-white p-3 shadow-sm sm:p-4" role="figure" aria-label="Agent Collaboration Chart">
             <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
               <div className="text-sm font-semibold">Agent Collaboration (current)</div>
               <div className="text-xs text-slate-500">by roleHint</div>
             </div>
-            <div className="h-48 sm:h-64">
+            <div className="h-48 sm:h-64" role="img" aria-label="Stacked bar chart showing agent collaboration by role">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={roleData} layout="vertical">
                   <CartesianGrid strokeDasharray="3 3" />
@@ -708,17 +716,17 @@ export default function App() {
               <div className="text-sm text-slate-600">Loading…</div>
             ) : (
               <div className="overflow-x-auto -mx-3 px-3 sm:-mx-4 sm:px-4">
-                <table className="w-full min-w-[600px] text-left text-xs sm:text-sm">
+                <table className="w-full min-w-[600px] text-left text-xs sm:text-sm" role="table" aria-label="Agent roles and metrics">
                   <thead className="border-b text-xs uppercase tracking-wide text-slate-500">
                     <tr>
-                      <th className="py-2 pr-2">Role</th>
-                      <th className="py-2 pr-2">InProg</th>
-                      <th className="py-2 pr-2">Ready</th>
-                      <th className="py-2 pr-2">Review</th>
-                      <th className="py-2 pr-2">Dispatched</th>
-                      <th className="py-2 pr-2">Done</th>
-                      <th className="py-2 pr-2">Failed</th>
-                      <th className="py-2 pr-2">Avg Cycle</th>
+                      <th scope="col" className="py-2 pr-2">Role</th>
+                      <th scope="col" className="py-2 pr-2">InProg</th>
+                      <th scope="col" className="py-2 pr-2">Ready</th>
+                      <th scope="col" className="py-2 pr-2">Review</th>
+                      <th scope="col" className="py-2 pr-2">Dispatched</th>
+                      <th scope="col" className="py-2 pr-2">Done</th>
+                      <th scope="col" className="py-2 pr-2">Failed</th>
+                      <th scope="col" className="py-2 pr-2">Avg Cycle</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -752,16 +760,16 @@ export default function App() {
           </div>
 
           <div className="overflow-x-auto -mx-3 px-3 sm:-mx-4 sm:px-4">
-            <table className="w-full min-w-[700px] text-left text-xs sm:text-sm">
+            <table className="w-full min-w-[700px] text-left text-xs sm:text-sm" role="table" aria-label="Task queue">
               <thead className="border-b text-xs uppercase tracking-wide text-slate-500">
                 <tr>
-                  <th className="py-2 pr-2">Task</th>
-                  <th className="py-2 pr-2">State</th>
-                  <th className="py-2 pr-2">Lane</th>
-                  <th className="py-2 pr-2">Role</th>
-                  <th className="py-2 pr-2">SLA</th>
-                  <th className="py-2 pr-2">InProgressAt</th>
-                  <th className="py-2 pr-2">runId</th>
+                  <th scope="col" className="py-2 pr-2">Task</th>
+                  <th scope="col" className="py-2 pr-2">State</th>
+                  <th scope="col" className="py-2 pr-2">Lane</th>
+                  <th scope="col" className="py-2 pr-2">Role</th>
+                  <th scope="col" className="py-2 pr-2">SLA</th>
+                  <th scope="col" className="py-2 pr-2">InProgressAt</th>
+                  <th scope="col" className="py-2 pr-2">runId</th>
                 </tr>
               </thead>
               <tbody>
